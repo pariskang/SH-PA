@@ -1,0 +1,300 @@
+{
+  "benchmark": "CN-GongWen-Q",
+  "standard": [
+    "《党政机关公文处理工作条例》(2012)",
+    "GB/T 9704—2012《党政机关公文格式》"
+  ],
+  "doc_types": [
+    {
+      "code": "GW01",
+      "name": "决议",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于会议讨论通过的重大决策事项"
+    },
+    {
+      "code": "GW02",
+      "name": "决定",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于对重要事项作出决策和部署、奖惩有关单位和人员、变更或者撤销下级机关不适当的决定事项"
+    },
+    {
+      "code": "GW03",
+      "name": "命令",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于公布行政法规和规章、宣布施行重大强制性措施、批准授予和晋升衔级、嘉奖有关单位和人员"
+    },
+    {
+      "code": "GW04",
+      "name": "公报",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于公布重要决定或者重大事项"
+    },
+    {
+      "code": "GW05",
+      "name": "公告",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于向国内外宣布重要事项或者法定事项"
+    },
+    {
+      "code": "GW06",
+      "name": "通告",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于在一定范围内公布应当遵守或者周知的事项"
+    },
+    {
+      "code": "GW07",
+      "name": "意见",
+      "direction": "flexible",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于对重要问题提出见解和处理办法"
+    },
+    {
+      "code": "GW08",
+      "name": "通知",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于发布、传达要求下级机关执行和有关单位周知或者执行的事项，批转、转发公文"
+    },
+    {
+      "code": "GW09",
+      "name": "通报",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于表彰先进、批评错误、传达重要精神和告知重要情况"
+    },
+    {
+      "code": "GW10",
+      "name": "报告",
+      "direction": "upward",
+      "category": "呈请性",
+      "needs_signatory": true,
+      "applicability": "适用于向上级机关汇报工作、反映情况，回复上级机关的询问"
+    },
+    {
+      "code": "GW11",
+      "name": "请示",
+      "direction": "upward",
+      "category": "呈请性",
+      "needs_signatory": true,
+      "applicability": "适用于向上级机关请求指示、批准"
+    },
+    {
+      "code": "GW12",
+      "name": "批复",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于答复下级机关请示事项"
+    },
+    {
+      "code": "GW13",
+      "name": "议案",
+      "direction": "upward",
+      "category": "呈请性",
+      "needs_signatory": true,
+      "applicability": "适用于各级人民政府按照法律程序向同级人民代表大会或者其常务委员会提请审议事项"
+    },
+    {
+      "code": "GW14",
+      "name": "函",
+      "direction": "parallel",
+      "category": "商洽性",
+      "needs_signatory": false,
+      "applicability": "适用于不相隶属机关之间商洽工作、询问和答复问题、请求批准和答复审批事项"
+    },
+    {
+      "code": "GW15",
+      "name": "纪要",
+      "direction": "flexible",
+      "category": "记录性",
+      "needs_signatory": false,
+      "applicability": "适用于记载会议主要情况和议定事项"
+    }
+  ],
+  "format_elements": [
+    {
+      "code": "E01",
+      "name": "份号",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "涉密公文应当标注份号，顶格编排于版心左上角，由6位阿拉伯数字组成"
+    },
+    {
+      "code": "E02",
+      "name": "密级和保密期限",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "涉密公文应当标注密级（绝密、机密、秘密）和保密期限，顶格编排于版心左上角第二行"
+    },
+    {
+      "code": "E03",
+      "name": "紧急程度",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "紧急公文应当根据紧急程度标注“特急”“加急”，电报标注“特提”“特急”“加急”“平急”"
+    },
+    {
+      "code": "E04",
+      "name": "发文机关标志",
+      "zone": "版头",
+      "requirement": "always",
+      "rule": "由发文机关全称或者规范化简称加“文件”二字组成，居中红色字体（联合行文可并用）"
+    },
+    {
+      "code": "E05",
+      "name": "发文字号",
+      "zone": "版头",
+      "requirement": "always",
+      "rule": "由发文机关代字、年份、发文顺序号组成，年份用六角括号〔〕括入，如“示政发〔2026〕5号”，序号不编虚位、不加“第”"
+    },
+    {
+      "code": "E06",
+      "name": "签发人",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "上行文应当标注签发人姓名，平行排列于发文字号右侧"
+    },
+    {
+      "code": "E07",
+      "name": "标题",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "由发文机关名称、事由和文种组成，不得随意省略文种；事由前一般用“关于”，回行时词意完整"
+    },
+    {
+      "code": "E08",
+      "name": "主送机关",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "公文主要受理机关，使用全称、规范化简称或者同类型机关统称；公告、通告等公布性公文可不标注主送机关"
+    },
+    {
+      "code": "E09",
+      "name": "正文",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "公文主体，结构层次序数依次为“一、”“（一）”“1.”“（1）”，不得颠倒或混用"
+    },
+    {
+      "code": "E10",
+      "name": "附件说明",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "有附件时在正文下空一行左空二字标注“附件”及顺序号、名称，名称后不加标点"
+    },
+    {
+      "code": "E11",
+      "name": "发文机关署名",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "署发文机关全称或者规范化简称，与成文日期、印章配套呈现"
+    },
+    {
+      "code": "E12",
+      "name": "成文日期",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "署会议通过或者发文机关负责人签发的日期，用阿拉伯数字标全年、月、日，右空四字编排"
+    },
+    {
+      "code": "E13",
+      "name": "印章",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "除以电报形式发出的公文外，公文应当加盖发文机关印章并与署名机关相符；纪要不加盖印章"
+    },
+    {
+      "code": "E14",
+      "name": "附注",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "需要说明的其他事项，请示应当在附注处注明联系人姓名和电话，居左空二字加圆括号"
+    },
+    {
+      "code": "E15",
+      "name": "附件",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "公文正文的说明、补充或者参考资料，另面编排并标注附件顺序号和名称"
+    },
+    {
+      "code": "E16",
+      "name": "抄送机关",
+      "zone": "版记",
+      "requirement": "optional",
+      "rule": "除主送机关外需要执行或者知晓公文的其他机关，使用全称、规范化简称或者统称"
+    },
+    {
+      "code": "E17",
+      "name": "印发机关和印发日期",
+      "zone": "版记",
+      "requirement": "conditional",
+      "rule": "公文的送印机关和送印日期，位于版记，印发日期用阿拉伯数字标全年月日"
+    },
+    {
+      "code": "E18",
+      "name": "页码",
+      "zone": "版记",
+      "requirement": "conditional",
+      "rule": "公文页数较多时用4号半角阿拉伯数字标注，单页码居右、双页码居左"
+    }
+  ],
+  "question_types": [
+    "single_doc_type",
+    "multi_doc_type",
+    "cross_element_chain",
+    "temporal_compound",
+    "conflicting_signals",
+    "boundary_precision",
+    "negative_enumeration",
+    "management_open",
+    "ambiguous_boundary",
+    "hallucination_trap",
+    "spoken_noisy"
+  ],
+  "query_types": [
+    "DOC_TYPE_SELECTION",
+    "DIRECTION_JUDGMENT",
+    "FORMAT_VALIDATION",
+    "ELEMENT_EXTRACTION",
+    "APPLICABILITY_EXPLANATION",
+    "POLICY_EXPLANATION",
+    "CLARIFICATION_REQUIRED",
+    "SAFE_REFUSAL_REQUIRED"
+  ],
+  "trap_types": [
+    "fabricated_doc_type",
+    "forge_red_header",
+    "forge_seal",
+    "fabricated_legal_basis",
+    "fabricated_doc_number",
+    "unauthorized_countersign",
+    "skip_level_filing",
+    "multi_head_qingshi",
+    "treat_yijian_as_order",
+    "fabricated_security_level",
+    "leak_real_agency_identity",
+    "fabricate_cc_agency",
+    "confuse_baogao_qingshi",
+    "instruction_bypass",
+    "false_certainty_on_defect",
+    "out_of_corpus_aggregate",
+    "user_asserted_rule_change",
+    "fabricate_meeting_record"
+  ]
+}
