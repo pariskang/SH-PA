@@ -39,6 +39,7 @@ from benchmark_schema import (
     QUESTION_TYPES,
     TRAP_TYPES,
     doc_type_by_code,
+    medical_area_by_name,
 )
 from data_sources import ingest_csv
 from litellm_minimax import LiteLLMConfig, litellm_available, polish_briefing, rewrite_question
@@ -143,78 +144,8 @@ SUBJECTS = (
     "组织开展安全生产大检查",
 )
 
-# 医疗卫生政策事由库：按 16 个子领域组织，覆盖医疗政策各方面（约占语料一半）
-MEDICAL_SUBJECTS: dict[str, tuple[str, ...]] = {
-    "医保管理": (
-        "深入推进DRG/DIP医保支付方式改革", "做好基本医疗保险药品目录动态调整衔接",
-        "加强医保基金使用常态化监管", "推进职工医保门诊共济保障机制改革",
-        "完善异地就医直接结算", "稳步推进长期护理保险制度建设",
-    ),
-    "医药供应与集采": (
-        "做好药品集中带量采购中选结果落地执行", "推进高值医用耗材集中带量采购",
-        "做好国家谈判药品落地与“双通道”管理", "加强短缺药品保供稳价",
-        "巩固完善基本药物制度",
-    ),
-    "医疗服务价格": (
-        "稳妥有序推进医疗服务价格动态调整", "规范医疗检查检验项目和价格管理",
-        "做好医疗服务价格项目立项工作",
-    ),
-    "公立医院改革": (
-        "推进公立医院高质量发展", "做好公立医院绩效考核工作",
-        "深化公立医院薪酬制度改革", "健全现代医院管理制度和医院章程",
-    ),
-    "分级诊疗": (
-        "推进紧密型城市医疗集团和县域医共体建设", "做实做细家庭医生签约服务",
-        "完善双向转诊与基层首诊机制",
-    ),
-    "公共卫生": (
-        "加强重大传染病疫情防控", "深化疾病预防控制体系改革",
-        "做好国家免疫规划疫苗接种", "健全突发公共卫生事件应急响应机制",
-        "加强慢性病综合防控", "做好地方病防治工作",
-    ),
-    "基层卫生": (
-        "提升社区卫生服务能力", "加强乡镇卫生院标准化建设",
-        "落实国家基本公共卫生服务项目", "规范村卫生室管理",
-    ),
-    "中医药": (
-        "推进中医药传承创新发展", "加强中医医疗机构能力建设",
-        "推进中西医结合临床协作", "加强中药质量管理",
-    ),
-    "药品器械监管": (
-        "加强药品安全风险监管", "规范医疗器械注册和使用监管",
-        "做好疫苗全程追溯管理", "加强药物警戒体系建设",
-    ),
-    "医疗质量与安全": (
-        "加强医疗质量安全管理", "深化医院感染预防与控制",
-        "规范临床用血管理", "推进合理用药与处方点评", "做好医疗纠纷预防和处理",
-    ),
-    "妇幼健康": (
-        "加强母婴安全保障", "做好出生缺陷综合防治",
-        "推进儿童青少年近视防控", "扩大普惠托育服务供给",
-    ),
-    "老龄与医养结合": (
-        "深入推进医养结合发展", "稳步扩大安宁疗护服务",
-        "完善老年健康服务体系", "加强失能老年人照护服务",
-    ),
-    "健康促进": (
-        "深入实施健康中国行动", "推进无烟环境建设与控烟",
-        "推动全民健身与全民健康融合", "加强国民营养与合理膳食指导",
-        "完善社会心理健康服务",
-    ),
-    "卫生人才与教育": (
-        "加强卫生健康人才队伍建设", "做好住院医师规范化培训",
-        "推进全科医生培养使用", "规范医师护士执业管理与继续教育",
-    ),
-    "职业健康": (
-        "加强职业病防治工作", "落实用人单位职业健康监护责任",
-        "推进职业卫生分类监督执法",
-    ),
-    "互联网医疗与数据": (
-        "规范发展“互联网+医疗健康”服务", "推进远程医疗协同网络建设",
-        "加强居民电子健康档案规范应用", "加强医疗健康大数据安全与共享",
-        "推进智慧医院建设",
-    ),
-}
+# 医疗公文标题事由 = 行动动词 + 具体政策主题（主题取自 MEDICAL_AREAS[*].topics，约 105 个具体分类）
+ACTION_VERBS = ("推进", "加强", "做好", "深化", "规范", "完善", "统筹推进", "扎实做好")
 AREA_NAMES = tuple(a.name for a in MEDICAL_AREAS)
 # 卫生系统专业机关的子领域倾向（增强真实性；非专业机关则覆盖全部领域）
 AREA_BY_AGENCY: dict[str, tuple[str, ...]] = {
@@ -350,14 +281,16 @@ def build_corpus(profile: ProfileSpec, agencies: list[dict[str, Any]]) -> list[d
                 else:
                     main_recipient = "各县（市、区）人民政府，各有关单位"
 
-                # 政策领域（整体约一半为医疗卫生）与事由
+                # 政策领域（整体约一半为医疗卫生）→ 子领域 → 十分具体的政策主题 → 事由
                 if hashed("dom", ag["agency_id"], ds, k) % 1000 < int(medical_prob(ag) * 1000):
                     policy_domain = "医疗卫生"
                     medical_area = pick_medical_area(ag, ag["agency_id"], ds, k)
-                    subject = pick(MEDICAL_SUBJECTS[medical_area], ag["agency_id"], ds, k)
+                    medical_topic = pick(medical_area_by_name(medical_area).topics, "topic", ag["agency_id"], ds, k)
+                    subject = pick(ACTION_VERBS, "verb", ag["agency_id"], ds, k) + medical_topic
                 else:
                     policy_domain = "通用政务"
                     medical_area = ""
+                    medical_topic = ""
                     subject = pick(SUBJECTS, ag["agency_id"], ds, k)
                 doc_number = f"{ag['agency_code']}〔{year}〕{seq}号"
                 title = f"{ag['agency_name']}关于{subject}的{spec.name}"
@@ -387,6 +320,7 @@ def build_corpus(profile: ProfileSpec, agencies: list[dict[str, Any]]) -> list[d
                     "agency_category": ag["agency_category"],
                     "policy_domain": policy_domain,
                     "medical_area": medical_area,
+                    "medical_topic": medical_topic,
                     "doc_type_code": spec.code,
                     "doc_type_name": spec.name,
                     "doc_number": doc_number,
@@ -751,7 +685,10 @@ def build_taxonomy() -> dict[str, Any]:
         "query_types": list(QUERY_TYPES),
         "trap_types": list(TRAP_TYPES),
         "policy_domains": list(POLICY_DOMAINS),
-        "medical_areas": [{"code": a.code, "name": a.name, "description": a.description} for a in MEDICAL_AREAS],
+        "medical_areas": [
+            {"code": a.code, "name": a.name, "description": a.description, "topics": list(a.topics)}
+            for a in MEDICAL_AREAS
+        ],
     }
 
 
@@ -1069,16 +1006,16 @@ def build_dataqa(corpus: Corpus, total: int, use_llm: bool, cfg: LiteLLMConfig |
     for i in range(counts["policy_domain_classification"]):
         pool = medical_docs if (i % 2 == 0 and medical_docs) else (general_docs or corpus.records)
         doc = pool[hashed("pdc", i) % len(pool)]
-        area = doc["medical_area"]
-        value = {"policy_domain": doc["policy_domain"], "medical_area": area}
+        area, topic = doc["medical_area"], doc["medical_topic"]
+        value = {"policy_domain": doc["policy_domain"], "medical_area": area, "medical_topic": topic}
         if doc["policy_domain"] == "医疗卫生":
-            fa = f"该公文《{doc['title']}》属于“医疗卫生”政策方向，医疗政策子领域为“{area}”。"
+            fa = f"该公文《{doc['title']}》属于“医疗卫生”政策方向，子领域为“{area}”，具体政策主题为“{topic}”。"
         else:
             fa = f"该公文《{doc['title']}》属于“通用政务”政策方向（非医疗卫生）。"
-        emit(f"判断公文《{doc['title']}》属于哪个政策领域？若属于医疗卫生，请进一步指出其医疗政策子领域。",
+        emit(f"判断公文《{doc['title']}》属于哪个政策领域？若属于医疗卫生，请进一步给出其医疗子领域与十分具体的政策主题。",
              "policy_domain_classification", value, fa,
-             "依据标题事由判定政策领域；医疗方向再归入16个医疗子领域之一。",
-             [doc["doc_id"]], required_elements=["政策领域"], scope=doc["issue_date"],
+             "依据标题事由三级判定：政策领域→16个医疗子领域之一→该子领域下的具体政策主题。",
+             [doc["doc_id"]], required_elements=["政策领域", "医疗子领域", "具体主题"], scope=doc["issue_date"],
              answer_type="classification")
 
     # anomaly 全量标签

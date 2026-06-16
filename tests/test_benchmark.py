@@ -38,6 +38,8 @@ def test_committed_artifacts_are_cross_file_valid():
     assert 0.45 <= report["q_medical_share"] <= 0.55
     # 医疗政策须覆盖足够多的子领域（共 16 个，要求 ≥14）。
     assert report["medical_area_coverage"] >= 14
+    # 医疗子领域须细化为足够多的“十分具体”政策主题（共约 105 个，standard 档应覆盖 ≥90）。
+    assert report["medical_topic_coverage"] >= 90
     # 分类任务须同时含医疗与通用两类。
     assert 0 < report["classification_medical"] < report["classification_total"]
 
@@ -49,6 +51,24 @@ def test_medical_subjects_cover_all_areas():
     rows = list(csv.DictReader((ROOT / "dataset_2_data_qa/records.csv").open(encoding="utf-8")))
     seen = {r["medical_area"] for r in rows if r["medical_area"]}
     assert seen == {a.name for a in MEDICAL_AREAS}
+
+
+def test_medical_topic_taxonomy_is_granular():
+    """医疗子领域须细化为 ≥100 个互不重复的“十分具体”政策主题，每个子领域 ≥4 个。"""
+    from gongwen_benchmark.scripts.benchmark_schema import MEDICAL_AREAS, all_medical_topics
+    topics = all_medical_topics()
+    assert len(topics) >= 100
+    assert len(set(topics)) == len(topics)
+    assert all(len(area.topics) >= 4 for area in MEDICAL_AREAS)
+
+
+def test_committed_corpus_uses_only_taxonomy_topics():
+    """语料中出现的具体主题必须全部来自 schema 定义（无越界/拼写漂移）。"""
+    import csv
+    from gongwen_benchmark.scripts.benchmark_schema import all_medical_topics
+    rows = list(csv.DictReader((ROOT / "dataset_2_data_qa/records.csv").open(encoding="utf-8")))
+    used = {r["medical_topic"] for r in rows if r["medical_topic"]}
+    assert used <= set(all_medical_topics())
 
 
 def test_question_public_split_has_no_hidden_labels():

@@ -128,6 +128,17 @@ def validate(root: Path) -> dict[str, Any]:
     assert classify, "policy_domain_classification task missing"
     assert 0 < cls_medical < len(classify), "classification task must include both medical and general docs"
 
+    # --- 医疗子领域须进一步细化为足够多的具体政策主题，且医疗分类答案须带具体主题 ---
+    medical_topics = {r.get("medical_topic") for r in records if r.get("medical_topic")}
+    assert len(medical_topics) >= 40, f"medical topics covered {len(medical_topics)} < 40 — insufficient granularity"
+    cls_medical_with_topic = sum(
+        1 for a in classify
+        if isinstance(a.get("answer_value"), dict)
+        and a["answer_value"].get("policy_domain") == "医疗卫生"
+        and a["answer_value"].get("medical_topic")
+    )
+    assert cls_medical_with_topic == cls_medical, "every medical classification answer must carry a specific topic"
+
     return {
         "q": len(public),
         "dataqa": len(questions),
@@ -144,6 +155,7 @@ def validate(root: Path) -> dict[str, Any]:
         "corpus_medical_share": round(corpus_medical_share, 3),
         "q_medical_share": round(q_medical_share, 3),
         "medical_area_coverage": len(medical_areas),
+        "medical_topic_coverage": len(medical_topics),
         "classification_medical": cls_medical,
         "classification_total": len(classify),
     }
