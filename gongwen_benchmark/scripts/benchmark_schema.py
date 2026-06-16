@@ -134,6 +134,7 @@ DATAQA_TASK_TYPES = (
     "negative_enumeration",         # 否定枚举（无某违规）
     "multi_criteria_ranking",       # 多准则优先级排序
     "precision_percentage_change",  # 精确百分比变化（2位小数）
+    "policy_domain_classification", # 政策领域/医疗子领域分类
 )
 
 # 播报子类型
@@ -166,6 +167,42 @@ TRAP_TYPES = (
     "user_asserted_rule_change",  # 接受用户臆造的格式规则变更
     "fabricate_meeting_record",   # 为纪要编造未议定事项
 )
+
+
+# --- 政策领域：通用政务 vs 医疗卫生（基准要求约各占一半）---
+POLICY_DOMAINS = ("通用政务", "医疗卫生")
+
+
+@dataclass(frozen=True)
+class MedicalAreaSpec:
+    code: str
+    name: str
+    description: str
+
+
+# 16 个医疗卫生政策子领域，覆盖医保、医药、医疗、公卫、中医药、监管、健康促进等各方面
+MEDICAL_AREAS: tuple[MedicalAreaSpec, ...] = (
+    MedicalAreaSpec("MA01", "医保管理", "医保支付方式改革(DRG/DIP)、目录调整、基金监管、异地结算、门诊共济、长期护理保险"),
+    MedicalAreaSpec("MA02", "医药供应与集采", "药品和高值耗材集中带量采购、国谈药落地、双通道、短缺药保供、基本药物制度"),
+    MedicalAreaSpec("MA03", "医疗服务价格", "医疗服务价格动态调整、检查检验价格规范、价格项目立项"),
+    MedicalAreaSpec("MA04", "公立医院改革", "公立医院高质量发展、绩效考核、薪酬制度改革、章程与现代医院管理"),
+    MedicalAreaSpec("MA05", "分级诊疗", "医联体/医共体建设、家庭医生签约、双向转诊、基层首诊"),
+    MedicalAreaSpec("MA06", "公共卫生", "重大传染病防控、疾控体系改革、免疫规划、突发公共卫生事件应急、慢性病与地方病防治"),
+    MedicalAreaSpec("MA07", "基层卫生", "社区卫生服务、乡镇卫生院能力建设、村卫生室、基本公共卫生服务项目"),
+    MedicalAreaSpec("MA08", "中医药", "中医药传承创新发展、中医医疗机构建设、中西医结合、中药质量"),
+    MedicalAreaSpec("MA09", "药品器械监管", "药品安全监管、医疗器械注册、疫苗管理、药物警戒"),
+    MedicalAreaSpec("MA10", "医疗质量与安全", "医疗质量管理、医院感染防控、临床用血管理、合理用药、医疗纠纷防范处理"),
+    MedicalAreaSpec("MA11", "妇幼健康", "母婴安全、出生缺陷防治、儿童青少年近视防控、托育服务"),
+    MedicalAreaSpec("MA12", "老龄与医养结合", "医养结合、安宁疗护、老年健康服务、失能照护"),
+    MedicalAreaSpec("MA13", "健康促进", "健康中国行动、控烟、全民健身、营养健康、心理健康服务"),
+    MedicalAreaSpec("MA14", "卫生人才与教育", "医师护士队伍建设、住院医师规范化培训、全科医生培养、医学继续教育"),
+    MedicalAreaSpec("MA15", "职业健康", "职业病防治、职业健康监护、用人单位职业卫生监管"),
+    MedicalAreaSpec("MA16", "互联网医疗与数据", "互联网+医疗健康、远程医疗、电子健康档案、医疗健康大数据、智慧医院"),
+)
+
+
+def medical_area_by_name(name: str) -> MedicalAreaSpec:
+    return next(spec for spec in MEDICAL_AREAS if spec.name == name)
 
 
 def doc_type_by_code(code: str) -> DocTypeSpec:

@@ -19,7 +19,7 @@ def test_committed_artifacts_are_cross_file_valid():
     for task in (
         "cross_doc_extremum", "consecutive_compliance_streak", "counterfactual_format",
         "quality_filtered_aggregate", "negative_enumeration", "multi_criteria_ranking",
-        "precision_percentage_change",
+        "precision_percentage_change", "policy_domain_classification",
     ):
         assert task in report["task_types"]
     # Q 须偏向高难（校验器阈值 40%）。
@@ -33,6 +33,22 @@ def test_committed_artifacts_are_cross_file_valid():
     assert report["briefing_ungrounded_count"] == 0
     # padding 占比须在预算内。
     assert report["q_padding_share"] <= 0.40
+    # 约一半内容须为医疗卫生政策方向（语料与 Q 均在 45%~55%）。
+    assert 0.45 <= report["corpus_medical_share"] <= 0.55
+    assert 0.45 <= report["q_medical_share"] <= 0.55
+    # 医疗政策须覆盖足够多的子领域（共 16 个，要求 ≥14）。
+    assert report["medical_area_coverage"] >= 14
+    # 分类任务须同时含医疗与通用两类。
+    assert 0 < report["classification_medical"] < report["classification_total"]
+
+
+def test_medical_subjects_cover_all_areas():
+    """语料应覆盖全部 16 个医疗政策子领域。"""
+    import csv
+    from gongwen_benchmark.scripts.benchmark_schema import MEDICAL_AREAS
+    rows = list(csv.DictReader((ROOT / "dataset_2_data_qa/records.csv").open(encoding="utf-8")))
+    seen = {r["medical_area"] for r in rows if r["medical_area"]}
+    assert seen == {a.name for a in MEDICAL_AREAS}
 
 
 def test_question_public_split_has_no_hidden_labels():

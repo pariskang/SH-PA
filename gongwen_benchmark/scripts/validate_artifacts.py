@@ -20,7 +20,7 @@ REQUIRED_TASK_TYPES = {
     "composite_element_explanation", "anomaly_detection", "priority_ranking", "briefing",
     "cross_doc_extremum", "consecutive_compliance_streak", "counterfactual_format",
     "quality_filtered_aggregate", "negative_enumeration", "multi_criteria_ranking",
-    "precision_percentage_change",
+    "precision_percentage_change", "policy_domain_classification",
 }
 REQUIRED_BRIEFING_SUBTYPES = {"risk_focused_targeted", "conflicting_signals_briefing", "exclusion_briefing"}
 REQUIRED_Q_TYPES = {
@@ -111,6 +111,23 @@ def validate(root: Path) -> dict[str, Any]:
     pad_share = padded / len(hidden) if hidden else 0
     assert pad_share <= 0.40, f"padding share {pad_share:.2%} above 40% — too many suffix variants"
 
+    # --- 医疗政策方向须约占一半，且覆盖足够多的医疗子领域 ---
+    corpus_medical = sum(1 for r in records if r.get("policy_domain") == "医疗卫生")
+    corpus_medical_share = corpus_medical / len(records) if records else 0
+    medical_areas = {r.get("medical_area") for r in records if r.get("medical_area")}
+    q_medical = sum(1 for h in hidden if h.get("policy_domain") == "医疗卫生")
+    q_medical_share = q_medical / len(hidden) if hidden else 0
+    # 宽松合格门槛（跨 profile 稳健）；提交的 standard 档由单元测试施加 45%~55% 的严格约束
+    assert 0.40 <= corpus_medical_share <= 0.60, f"corpus medical share {corpus_medical_share:.2%} not ~half"
+    assert 0.40 <= q_medical_share <= 0.60, f"Q medical share {q_medical_share:.2%} not ~half"
+    assert len(medical_areas) >= 10, f"medical areas covered {len(medical_areas)} < 10 — insufficient breadth"
+    # DataQA 分类任务须同时覆盖医疗与通用两类公文
+    cls_qids = {q["question_id"] for q in questions if q["task_type"] == "policy_domain_classification"}
+    classify = [a for a in answers if a["question_id"] in cls_qids]
+    cls_medical = sum(1 for a in classify if isinstance(a.get("answer_value"), dict) and a["answer_value"].get("policy_domain") == "医疗卫生")
+    assert classify, "policy_domain_classification task missing"
+    assert 0 < cls_medical < len(classify), "classification task must include both medical and general docs"
+
     return {
         "q": len(public),
         "dataqa": len(questions),
@@ -124,6 +141,11 @@ def validate(root: Path) -> dict[str, Any]:
         "q_trap_diversity": len(trap_types),
         "q_padding_share": round(pad_share, 3),
         "briefing_ungrounded_count": len(ungrounded),
+        "corpus_medical_share": round(corpus_medical_share, 3),
+        "q_medical_share": round(q_medical_share, 3),
+        "medical_area_coverage": len(medical_areas),
+        "classification_medical": cls_medical,
+        "classification_total": len(classify),
     }
 
 
