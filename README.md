@@ -18,13 +18,17 @@ GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向
 
 ## 在 Google Colab 中复现
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/main/notebooks/CN_GongWen_Colab_Pipeline.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/claude/determined-lamport-vyvmpd/notebooks/CN_GongWen_Reproduce_Colab.ipynb)
 
-[`notebooks/CN_GongWen_Colab_Pipeline.ipynb`](notebooks/CN_GongWen_Colab_Pipeline.ipynb) 是端到端的一键复现笔记本：克隆仓库、安装依赖、（可选）配置
-**MiniMax API**（OpenAI 兼容）、连通性自检、用 `generate_benchmarks.py --use-litellm`
-生成两套数据集，随后严格校验、单元测试、分布可视化、对照 `records.csv` 复核证据行，
-并演示打分器。所有数值/排序/合规标签均由 Python 确定性计算，MiniMax 只在**事实护栏**
-下做表层改写，因此有无 LLM 产物完全一致。
+**一键完美复现**：[`notebooks/CN_GongWen_Reproduce_Colab.ipynb`](notebooks/CN_GongWen_Reproduce_Colab.ipynb)
+克隆仓库 → 安装依赖（含中文字体）→（可选）配置 **MiniMax** → 从零重新生成 →
+**用 `git diff` 当场证明与提交工件逐字节一致** → 严格校验 → 单元测试 → 公文分布与医疗三级分类可视化 →
+证据复核 → 打分器演示。因数据生成完全基于 SHA-256 哈希、**无随机数、核心无第三方依赖**，
+任何环境/任何时间复现都逐字节一致。
+
+> 另有 [`notebooks/CN_GongWen_Colab_Pipeline.ipynb`](notebooks/CN_GongWen_Colab_Pipeline.ipynb)
+> 作为分步讲解版 pipeline。所有数值/排序/合规标签均由 Python 确定性计算，MiniMax 仅在**事实护栏**
+> 下做表层改写，因此有无 LLM 产物完全一致。
 
 ## 已实现的两套基准
 
