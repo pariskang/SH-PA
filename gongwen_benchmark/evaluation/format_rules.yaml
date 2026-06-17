@@ -1,0 +1,24 @@
+# GB/T 9704—2012 关键格式要素与常见违规映射（供 anomaly_detection / format_compliance 任务参考）
+elements:
+  E01: {name: 份号, zone: 版头, requirement: 涉密公文必标, rule: 6位阿拉伯数字，顶格于版心左上角}
+  E02: {name: 密级和保密期限, zone: 版头, requirement: 涉密公文必标, rule: 绝密/机密/秘密+期限}
+  E03: {name: 紧急程度, zone: 版头, requirement: 紧急公文必标, rule: 特急/加急（电报另有等级）}
+  E04: {name: 发文机关标志, zone: 版头, requirement: 必标, rule: 全称或规范化简称+“文件”，居中红色}
+  E05: {name: 发文字号, zone: 版头, requirement: 必标, rule: 机关代字〔年份〕序号，序号不加“第”、不编虚位}
+  E06: {name: 签发人, zone: 版头, requirement: 上行文必标, rule: 标注签发人姓名}
+  E07: {name: 标题, zone: 主体, requirement: 必标, rule: 发文机关+事由+文种，不得省略文种}
+  E08: {name: 主送机关, zone: 主体, requirement: 多数文种必标, rule: 公告/通告可不标主送}
+  E09: {name: 正文, zone: 主体, requirement: 必标, rule: 层次序数 一、（一）1.（1）}
+  E11: {name: 发文机关署名, zone: 主体, requirement: 必标, rule: 与成文日期、印章配套}
+  E12: {name: 成文日期, zone: 主体, requirement: 必标, rule: 阿拉伯数字标全年月日}
+  E13: {name: 印章, zone: 主体, requirement: 一般必盖, rule: 纪要、电报除外}
+
+# format_flag -> 违规要素映射（与 generate_benchmarks.FLAG_VIOLATION 对应）
+violations:
+  missing_doc_type_in_title: {element: E07, issue: 标题省略文种}
+  multi_head_qingshi: {element: E08, issue: 请示多头主送}
+  missing_signatory_upward: {element: E06, issue: 上行文未标注签发人}
+  secret_on_public: {element: E02, issue: 公布性公文不应标注密级}
+  invalid_doc_number: {element: E05, issue: 发文字号格式不规范}
+  seal_on_jiyao: {element: E13, issue: 纪要不应加盖印章}
+  missing_main_recipient: {element: E08, issue: 缺少主送机关}

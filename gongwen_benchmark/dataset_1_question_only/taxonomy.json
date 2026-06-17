@@ -1,0 +1,523 @@
+{
+  "benchmark": "CN-GongWen-Q",
+  "standard": [
+    "《党政机关公文处理工作条例》(2012)",
+    "GB/T 9704—2012《党政机关公文格式》"
+  ],
+  "doc_types": [
+    {
+      "code": "GW01",
+      "name": "决议",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于会议讨论通过的重大决策事项"
+    },
+    {
+      "code": "GW02",
+      "name": "决定",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于对重要事项作出决策和部署、奖惩有关单位和人员、变更或者撤销下级机关不适当的决定事项"
+    },
+    {
+      "code": "GW03",
+      "name": "命令",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于公布行政法规和规章、宣布施行重大强制性措施、批准授予和晋升衔级、嘉奖有关单位和人员"
+    },
+    {
+      "code": "GW04",
+      "name": "公报",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于公布重要决定或者重大事项"
+    },
+    {
+      "code": "GW05",
+      "name": "公告",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于向国内外宣布重要事项或者法定事项"
+    },
+    {
+      "code": "GW06",
+      "name": "通告",
+      "direction": "downward",
+      "category": "公布性",
+      "needs_signatory": false,
+      "applicability": "适用于在一定范围内公布应当遵守或者周知的事项"
+    },
+    {
+      "code": "GW07",
+      "name": "意见",
+      "direction": "flexible",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于对重要问题提出见解和处理办法"
+    },
+    {
+      "code": "GW08",
+      "name": "通知",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于发布、传达要求下级机关执行和有关单位周知或者执行的事项，批转、转发公文"
+    },
+    {
+      "code": "GW09",
+      "name": "通报",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于表彰先进、批评错误、传达重要精神和告知重要情况"
+    },
+    {
+      "code": "GW10",
+      "name": "报告",
+      "direction": "upward",
+      "category": "呈请性",
+      "needs_signatory": true,
+      "applicability": "适用于向上级机关汇报工作、反映情况，回复上级机关的询问"
+    },
+    {
+      "code": "GW11",
+      "name": "请示",
+      "direction": "upward",
+      "category": "呈请性",
+      "needs_signatory": true,
+      "applicability": "适用于向上级机关请求指示、批准"
+    },
+    {
+      "code": "GW12",
+      "name": "批复",
+      "direction": "downward",
+      "category": "指示性",
+      "needs_signatory": false,
+      "applicability": "适用于答复下级机关请示事项"
+    },
+    {
+      "code": "GW13",
+      "name": "议案",
+      "direction": "upward",
+      "category": "呈请性",
+      "needs_signatory": true,
+      "applicability": "适用于各级人民政府按照法律程序向同级人民代表大会或者其常务委员会提请审议事项"
+    },
+    {
+      "code": "GW14",
+      "name": "函",
+      "direction": "parallel",
+      "category": "商洽性",
+      "needs_signatory": false,
+      "applicability": "适用于不相隶属机关之间商洽工作、询问和答复问题、请求批准和答复审批事项"
+    },
+    {
+      "code": "GW15",
+      "name": "纪要",
+      "direction": "flexible",
+      "category": "记录性",
+      "needs_signatory": false,
+      "applicability": "适用于记载会议主要情况和议定事项"
+    }
+  ],
+  "format_elements": [
+    {
+      "code": "E01",
+      "name": "份号",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "涉密公文应当标注份号，顶格编排于版心左上角，由6位阿拉伯数字组成"
+    },
+    {
+      "code": "E02",
+      "name": "密级和保密期限",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "涉密公文应当标注密级（绝密、机密、秘密）和保密期限，顶格编排于版心左上角第二行"
+    },
+    {
+      "code": "E03",
+      "name": "紧急程度",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "紧急公文应当根据紧急程度标注“特急”“加急”，电报标注“特提”“特急”“加急”“平急”"
+    },
+    {
+      "code": "E04",
+      "name": "发文机关标志",
+      "zone": "版头",
+      "requirement": "always",
+      "rule": "由发文机关全称或者规范化简称加“文件”二字组成，居中红色字体（联合行文可并用）"
+    },
+    {
+      "code": "E05",
+      "name": "发文字号",
+      "zone": "版头",
+      "requirement": "always",
+      "rule": "由发文机关代字、年份、发文顺序号组成，年份用六角括号〔〕括入，如“示政发〔2026〕5号”，序号不编虚位、不加“第”"
+    },
+    {
+      "code": "E06",
+      "name": "签发人",
+      "zone": "版头",
+      "requirement": "conditional",
+      "rule": "上行文应当标注签发人姓名，平行排列于发文字号右侧"
+    },
+    {
+      "code": "E07",
+      "name": "标题",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "由发文机关名称、事由和文种组成，不得随意省略文种；事由前一般用“关于”，回行时词意完整"
+    },
+    {
+      "code": "E08",
+      "name": "主送机关",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "公文主要受理机关，使用全称、规范化简称或者同类型机关统称；公告、通告等公布性公文可不标注主送机关"
+    },
+    {
+      "code": "E09",
+      "name": "正文",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "公文主体，结构层次序数依次为“一、”“（一）”“1.”“（1）”，不得颠倒或混用"
+    },
+    {
+      "code": "E10",
+      "name": "附件说明",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "有附件时在正文下空一行左空二字标注“附件”及顺序号、名称，名称后不加标点"
+    },
+    {
+      "code": "E11",
+      "name": "发文机关署名",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "署发文机关全称或者规范化简称，与成文日期、印章配套呈现"
+    },
+    {
+      "code": "E12",
+      "name": "成文日期",
+      "zone": "主体",
+      "requirement": "always",
+      "rule": "署会议通过或者发文机关负责人签发的日期，用阿拉伯数字标全年、月、日，右空四字编排"
+    },
+    {
+      "code": "E13",
+      "name": "印章",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "除以电报形式发出的公文外，公文应当加盖发文机关印章并与署名机关相符；纪要不加盖印章"
+    },
+    {
+      "code": "E14",
+      "name": "附注",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "需要说明的其他事项，请示应当在附注处注明联系人姓名和电话，居左空二字加圆括号"
+    },
+    {
+      "code": "E15",
+      "name": "附件",
+      "zone": "主体",
+      "requirement": "conditional",
+      "rule": "公文正文的说明、补充或者参考资料，另面编排并标注附件顺序号和名称"
+    },
+    {
+      "code": "E16",
+      "name": "抄送机关",
+      "zone": "版记",
+      "requirement": "optional",
+      "rule": "除主送机关外需要执行或者知晓公文的其他机关，使用全称、规范化简称或者统称"
+    },
+    {
+      "code": "E17",
+      "name": "印发机关和印发日期",
+      "zone": "版记",
+      "requirement": "conditional",
+      "rule": "公文的送印机关和送印日期，位于版记，印发日期用阿拉伯数字标全年月日"
+    },
+    {
+      "code": "E18",
+      "name": "页码",
+      "zone": "版记",
+      "requirement": "conditional",
+      "rule": "公文页数较多时用4号半角阿拉伯数字标注，单页码居右、双页码居左"
+    }
+  ],
+  "question_types": [
+    "single_doc_type",
+    "multi_doc_type",
+    "cross_element_chain",
+    "temporal_compound",
+    "conflicting_signals",
+    "boundary_precision",
+    "negative_enumeration",
+    "management_open",
+    "ambiguous_boundary",
+    "hallucination_trap",
+    "spoken_noisy"
+  ],
+  "query_types": [
+    "DOC_TYPE_SELECTION",
+    "DIRECTION_JUDGMENT",
+    "FORMAT_VALIDATION",
+    "ELEMENT_EXTRACTION",
+    "APPLICABILITY_EXPLANATION",
+    "POLICY_EXPLANATION",
+    "CLARIFICATION_REQUIRED",
+    "SAFE_REFUSAL_REQUIRED"
+  ],
+  "trap_types": [
+    "fabricated_doc_type",
+    "forge_red_header",
+    "forge_seal",
+    "fabricated_legal_basis",
+    "fabricated_doc_number",
+    "unauthorized_countersign",
+    "skip_level_filing",
+    "multi_head_qingshi",
+    "treat_yijian_as_order",
+    "fabricated_security_level",
+    "leak_real_agency_identity",
+    "fabricate_cc_agency",
+    "confuse_baogao_qingshi",
+    "instruction_bypass",
+    "false_certainty_on_defect",
+    "out_of_corpus_aggregate",
+    "user_asserted_rule_change",
+    "fabricate_meeting_record"
+  ],
+  "policy_domains": [
+    "通用政务",
+    "医疗卫生"
+  ],
+  "medical_areas": [
+    {
+      "code": "MA01",
+      "name": "医保管理",
+      "description": "医保支付改革、目录、基金监管、参保与待遇",
+      "topics": [
+        "DRG按疾病诊断相关分组付费改革",
+        "DIP按病种分值付费改革",
+        "基本医疗保险药品目录管理",
+        "医保基金使用常态化监管",
+        "职工基本医保门诊共济保障",
+        "城乡居民基本医保参保扩面",
+        "异地就医住院与门诊直接结算",
+        "长期护理保险制度建设",
+        "生育保险待遇保障"
+      ]
+    },
+    {
+      "code": "MA02",
+      "name": "医药供应与集采",
+      "description": "集采、国谈药、短缺药、基本药物",
+      "topics": [
+        "药品集中带量采购落地执行",
+        "高值医用耗材集中带量采购",
+        "国家谈判药品落地与“双通道”管理",
+        "短缺药品保供稳价",
+        "国家基本药物制度巩固完善",
+        "药品价格监测与成本调查"
+      ]
+    },
+    {
+      "code": "MA03",
+      "name": "医疗服务价格",
+      "description": "价格调整、价格项目、备案",
+      "topics": [
+        "医疗服务价格动态调整",
+        "检查检验项目价格规范管理",
+        "医疗服务价格项目立项编制",
+        "公立医院医疗服务价格备案"
+      ]
+    },
+    {
+      "code": "MA04",
+      "name": "公立医院改革",
+      "description": "高质量发展、绩效、薪酬、治理",
+      "topics": [
+        "公立医院高质量发展",
+        "公立医院绩效国家监测考核",
+        "公立医院薪酬制度改革",
+        "现代医院管理制度与医院章程建设",
+        "公立医院全面预算与运营管理",
+        "公立医院党建引领发展"
+      ]
+    },
+    {
+      "code": "MA05",
+      "name": "分级诊疗",
+      "description": "医联体、医共体、签约、转诊",
+      "topics": [
+        "紧密型城市医疗集团建设",
+        "紧密型县域医共体建设",
+        "家庭医生签约服务",
+        "医疗机构双向转诊",
+        "基层首诊与连续服务",
+        "专科联盟与远程医疗协作网建设"
+      ]
+    },
+    {
+      "code": "MA06",
+      "name": "公共卫生",
+      "description": "传染病、疾控、免疫、应急、慢病",
+      "topics": [
+        "重大传染病疫情防控",
+        "疾病预防控制体系改革",
+        "国家免疫规划疫苗接种",
+        "突发公共卫生事件应急处置",
+        "慢性非传染性疾病综合防控",
+        "地方病防治",
+        "严重精神障碍患者服务管理",
+        "病媒生物预防控制"
+      ]
+    },
+    {
+      "code": "MA07",
+      "name": "基层卫生",
+      "description": "社区、卫生院、村室、基本公卫",
+      "topics": [
+        "社区卫生服务中心标准化建设",
+        "乡镇卫生院服务能力提升",
+        "村卫生室规范化管理",
+        "国家基本公共卫生服务项目落实",
+        "家庭医生团队建设",
+        "基层卫生人才“县管乡用”"
+      ]
+    },
+    {
+      "code": "MA08",
+      "name": "中医药",
+      "description": "传承创新、机构、中西医结合、中药",
+      "topics": [
+        "中医药传承创新发展",
+        "中医医疗机构服务能力建设",
+        "中西医结合临床协作",
+        "中药饮片质量管理",
+        "中医药适宜技术推广",
+        "基层中医馆（国医堂）建设"
+      ]
+    },
+    {
+      "code": "MA09",
+      "name": "药品器械监管",
+      "description": "药品器械、疫苗、药物警戒、特药",
+      "topics": [
+        "药品生产经营质量监管",
+        "医疗器械注册与使用监管",
+        "疫苗全程追溯管理",
+        "药物警戒与药品不良反应监测",
+        "麻醉药品和精神药品管理",
+        "药品网络销售监督",
+        "化妆品安全监管"
+      ]
+    },
+    {
+      "code": "MA10",
+      "name": "医疗质量与安全",
+      "description": "质控、院感、用血、用药、纠纷",
+      "topics": [
+        "医疗质量管理与控制",
+        "医疗机构感染预防与控制",
+        "临床用血管理",
+        "合理用药与处方点评",
+        "抗菌药物临床应用管理",
+        "医疗纠纷预防和处理",
+        "手术安全核查与患者安全",
+        "病案首页与病案质量管理"
+      ]
+    },
+    {
+      "code": "MA11",
+      "name": "妇幼健康",
+      "description": "母婴、出生缺陷、近视、托育",
+      "topics": [
+        "母婴安全保障",
+        "出生缺陷综合防治",
+        "儿童青少年近视防控",
+        "普惠托育服务体系建设",
+        "适龄妇女“两癌”筛查",
+        "婚前与孕前保健"
+      ]
+    },
+    {
+      "code": "MA12",
+      "name": "老龄与医养结合",
+      "description": "医养、安宁疗护、老年健康",
+      "topics": [
+        "医养结合服务发展",
+        "安宁疗护服务",
+        "老年健康服务体系建设",
+        "失能老年人长期照护",
+        "老年友善医疗机构建设",
+        "老年认知障碍（痴呆）防治"
+      ]
+    },
+    {
+      "code": "MA13",
+      "name": "健康促进",
+      "description": "健康中国、控烟、营养、心理",
+      "topics": [
+        "健康中国行动实施",
+        "无烟环境建设与控烟",
+        "全民健身与全民健康融合",
+        "国民营养计划与合理膳食",
+        "社会心理服务体系建设",
+        "健康县区与健康城市建设",
+        "居民健康素养提升"
+      ]
+    },
+    {
+      "code": "MA14",
+      "name": "卫生人才与教育",
+      "description": "住培、全科、执业、职称",
+      "topics": [
+        "住院医师规范化培训",
+        "全科医生培养使用",
+        "医师执业注册管理",
+        "护士队伍建设",
+        "医学继续教育",
+        "卫生专业技术人员职称评审",
+        "儿科精神科麻醉等紧缺人才培养"
+      ]
+    },
+    {
+      "code": "MA15",
+      "name": "职业健康",
+      "description": "职业病、监护、尘肺、放射卫生",
+      "topics": [
+        "职业病防治",
+        "用人单位职业健康监护",
+        "用人单位职业卫生主体责任落实",
+        "尘肺病防治攻坚",
+        "职业卫生分类监督执法",
+        "放射卫生防护监管"
+      ]
+    },
+    {
+      "code": "MA16",
+      "name": "互联网医疗与数据",
+      "description": "互联网医院、远程、健康档案、数据",
+      "topics": [
+        "互联网医院与互联网诊疗管理",
+        "远程医疗协同网络建设",
+        "居民电子健康档案规范应用",
+        "医疗健康大数据安全与共享",
+        "智慧医院与电子病历分级评价",
+        "检查检验结果互通互认",
+        "电子处方流转管理"
+      ]
+    }
+  ]
+}

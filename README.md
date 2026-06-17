@@ -1,57 +1,97 @@
-# SH-HOD
+# CN-GongWen Benchmark（中国公文测试数据生成）
 
-Shanghai-HOD benchmark workspace for constructing two municipal hospital operational dashboard evaluation datasets.
+构建两套**中国党政机关公文**评测数据集的可复现工作区，对标
+《党政机关公文处理工作条例》(2012) 规定的 **15 种法定公文** 与
+GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向考察顶级大模型
+（Claude / GPT / Gemini）在公文写作、理解、要素抽取、格式合规与办理场景下的能力。
 
-## Reproduce in Google Colab
+> 🏥 **约一半内容为医疗卫生政策方向**：语料与问题集中约 50% 围绕医疗政策，细分覆盖
+> **16 个医疗政策子领域**——医保管理、医药供应与集采、医疗服务价格、公立医院改革、分级诊疗、
+> 公共卫生、基层卫生、中医药、药品器械监管、医疗质量与安全、妇幼健康、老龄与医养结合、
+> 健康促进、卫生人才与教育、职业健康、互联网医疗与数据。每个子领域再细化为**十分具体的政策主题**
+> （如 DRG/DIP 付费、国谈药双通道、院感防控、出生缺陷防治、安宁疗护、互联网诊疗……合计**约 105 个具体分类**）。
+> 另含 `policy_domain_classification` **三级分类任务**（政策领域 → 医疗子领域 → 具体政策主题）与
+> 医疗专属安全陷阱（患者隐私、把临床指南当强制命令、伪造医保目录条款等）。
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-HOD/blob/main/notebooks/Shanghai_HOD_Colab_Pipeline.ipynb)
+> ⚠️ 数据说明：仓库内所有机关名称、姓名、发文字号、公文内容均为**合成示例**，
+> 以“示范”机关与 `GA###` 编码匿名化，不对应任何真实单位或真实公文，亦不含个人隐私信息。
 
-[`notebooks/Shanghai_HOD_Colab_Pipeline.ipynb`](notebooks/Shanghai_HOD_Colab_Pipeline.ipynb) is an end-to-end Colab notebook that clones the repo, installs dependencies, configures the **MiniMax API** (OpenAI-compatible), runs a connectivity self-check, generates both datasets via `generate_benchmarks.py --use-litellm`, then strictly validates, unit-tests, visualizes distributions, cross-checks evidence rows against `records.csv`, and demonstrates the scoring harness. Numeric labels stay Python-deterministic; MiniMax only performs fact-guarded surface rewriting, so artifacts are identical with or without the LLM.
+## 在 Google Colab 中复现
 
-## Implemented benchmark sets
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/claude/determined-lamport-vyvmpd/notebooks/CN_GongWen_Reproduce_Colab.ipynb)
 
-- **Shanghai-HOD-Q37**: question-only natural-language stress test for module routing, intent recognition, slot extraction, clarification, safe refusal, hallucination resistance, spoken/noisy questions, and management-style open questions.
-- **Shanghai-HOD-DataQA37**: data-grounded QA benchmark with structured records, deterministic Python-computed answers, evidence rows, calculations, anomaly labels, priority ranking, and grounded briefing tasks.
+**一键完美复现**：[`notebooks/CN_GongWen_Reproduce_Colab.ipynb`](notebooks/CN_GongWen_Reproduce_Colab.ipynb)
+克隆仓库 → 安装依赖（含中文字体）→（可选）配置 **MiniMax** → 从零重新生成 →
+**用 `git diff` 当场证明与提交工件逐字节一致** → 严格校验 → 单元测试 → 公文分布与医疗三级分类可视化 →
+证据复核 → 打分器演示。因数据生成完全基于 SHA-256 哈希、**无随机数、核心无第三方依赖**，
+任何环境/任何时间复现都逐字节一致。
 
-## Generate datasets
+> 另有 [`notebooks/CN_GongWen_Colab_Pipeline.ipynb`](notebooks/CN_GongWen_Colab_Pipeline.ipynb)
+> 作为分步讲解版 pipeline。所有数值/排序/合规标签均由 Python 确定性计算，MiniMax 仅在**事实护栏**
+> 下做表层改写，因此有无 LLM 产物完全一致。
 
-Representative committed profile:
+## 已实现的两套基准
+
+- **CN-GongWen-Q**：纯自然语言问题集，压力测试文种判定、行文方向、格式要素识别、
+  适用情形、常见错误辨析、边界精度、否定枚举、管理开放题、模糊澄清、**18 种幻觉/安全陷阱**
+  以及口语化噪声问题（共 11 类问题类型）。
+- **CN-GongWen-DataQA**：基于合成公文语料的数据问答，结构化记录 + Python 确定性答案 +
+  证据行 + 计算说明 + 异常标签 + 优先级排序 + 接地播报 + 政策领域/医疗子领域分类
+  （共 16 类任务，含 7 类进阶难题、5 种播报子类型）。
+
+## 生成数据集
+
+代表性提交档（standard）：
 
 ```bash
-python shanghai_hod_benchmark/scripts/generate_benchmarks.py --profile standard
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard
 ```
 
-Production-scale local materialization for 37 hospitals, 7 days, 48 half-hour windows per day, and all configured indicators:
+生产规模本地生成（37 机关、30 个工作日）：
 
 ```bash
-python shanghai_hod_benchmark/scripts/generate_benchmarks.py --profile full --q37-count 1000 --dataqa-questions 3000
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile full --q-count 1000 --dataqa-questions 3000
 ```
 
-## LiteLLM / Minimax configuration
+## LiteLLM / MiniMax 配置
 
-LiteLLM is optional and is used only for safe question rewriting or briefing-language polishing. Numeric answers are always computed from `records.csv` by Python.
+LiteLLM 为可选项，仅用于安全的问题改写或播报语言润色。文种、字号、日期、密级、数值、
+排序、合规判定始终由 Python 从 `records.csv` 计算。
 
 ```bash
 export MINIMAX_API_KEY=...
 export MINIMAX_API_BASE=https://your-openai-compatible-relay/v1
 export MINIMAX_MODEL=MiniMax-M1
-python shanghai_hod_benchmark/scripts/generate_benchmarks.py --profile standard --use-litellm
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard --use-litellm
 ```
 
-## Validate committed artifacts
+## 校验与评测
 
 ```bash
-python shanghai_hod_benchmark/scripts/validate_artifacts.py
+python gongwen_benchmark/scripts/validate_artifacts.py
 pytest -q
 ```
 
-For approved aggregate real-data input, use `--records-input`. Patient-level columns are rejected and hospital identifiers are anonymized by default. See `shanghai_hod_benchmark/README.md` for the full workflow.
-
-## Binary artifact policy
-
-This repository commits reviewable text artifacts only because the PR system does not support binary diffs. Generate Parquet locally when needed:
+打分器示例（以金标准自评作连通性检查）：
 
 ```bash
-python shanghai_hod_benchmark/scripts/generate_benchmarks.py \
-  --profile standard --export-parquet /tmp/shanghai-hod-records.parquet
+python gongwen_benchmark/evaluation/scorer.py --dataset q \
+  --gold gongwen_benchmark/dataset_1_question_only/questions_with_hidden_metadata.jsonl \
+  --pred your_q_predictions.jsonl
+python gongwen_benchmark/evaluation/scorer.py --dataset dataqa \
+  --gold gongwen_benchmark/dataset_2_data_qa/answers.jsonl \
+  --pred your_dataqa_predictions.jsonl
+```
+
+对经批准的脱敏聚合真实台账，使用 `--records-input`。导入器会拒绝个人隐私字段并默认匿名化机关。
+完整工作流见 [`gongwen_benchmark/README.md`](gongwen_benchmark/README.md)。
+
+## 二进制工件策略
+
+PR 评审系统不支持二进制 diff，故仓库仅提交可审阅的文本工件（CSV / JSONL）。
+需要 Parquet 时本地生成：
+
+```bash
+python gongwen_benchmark/scripts/generate_benchmarks.py \
+  --profile standard --export-parquet /tmp/gongwen-records.parquet
 ```
