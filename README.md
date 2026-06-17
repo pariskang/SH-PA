@@ -16,6 +16,27 @@ GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向
 > ⚠️ 数据说明：仓库内所有机关名称、姓名、发文字号、公文内容均为**合成示例**，
 > 以“示范”机关与 `GA###` 编码匿名化，不对应任何真实单位或真实公文，亦不含个人隐私信息。
 
+## 公文写作测试：基于明确 prompt 的两阶段生成（MiniMax）
+
+核心测试流程是**让模型真正“写”公文**：给定明确的写作 prompt（文种、发文机关、行文方向、事由、长度等），
+**第一步**生成「写作框架」(提纲)，**第二步**据框架生成「整体公文」全文，覆盖**不同文种**（15 种法定公文）
+与**不同长度**（短/中/长）、不同政策方向（通用政务 / 医疗卫生及其具体主题）。
+
+```bash
+# 真正调用 MiniMax 写作（需 OpenAI 兼容凭证）
+export MINIMAX_API_KEY=...        # MINIMAX_API_BASE 默认 https://api.minimaxi.com/v1，MINIMAX_MODEL 默认 MiniMax-M1
+python gongwen_benchmark/scripts/compose_documents.py --count 15 --out gongwen_benchmark/generated_documents
+
+# 无 Key 时确定性离线回退（结构一致、可审阅、可复现）
+python gongwen_benchmark/scripts/compose_documents.py --count 15 --no-llm --out gongwen_benchmark/generated_samples
+```
+
+- 一键体验见 Colab 笔记本
+  [`notebooks/CN_GongWen_Compose_Colab.ipynb`](notebooks/CN_GongWen_Compose_Colab.ipynb)（内含 MiniMax 凭证表单与“自定义明确 prompt 即时生成”单元）。
+- 可审阅的确定性样例已提交在 [`gongwen_benchmark/generated_samples/`](gongwen_benchmark/generated_samples)
+  （每篇含写作框架 JSON 与整体公文全文）。LLM 现场产物非确定性，不入库。
+- 写作 prompt 复用本仓库 taxonomy（15 文种 × 105 个医疗具体主题 × 3 种长度），可自动构造大量多样化的明确写作任务。
+
 ## 在 Google Colab 中复现
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/claude/determined-lamport-vyvmpd/notebooks/CN_GongWen_Reproduce_Colab.ipynb)

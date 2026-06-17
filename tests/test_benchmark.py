@@ -118,6 +118,29 @@ def test_scorer_is_perfect_on_gold():
     assert s2["anomaly_f1"] == 1.0
 
 
+def test_compose_two_stage_offline():
+    """两阶段写作（写作框架→整体公文）离线确定性回退：覆盖全部 15 文种与三种长度。"""
+    from gongwen_benchmark.scripts.compose_documents import build_specs, compose
+    specs = build_specs(15)
+    assert len({s.doc_type for s in specs}) == 15            # 不同种类
+    assert {s.length for s in specs} == {"short", "medium", "long"}  # 不同长度
+    result = compose(specs[0], None, use_llm=False)
+    fw, doc = result["framework"], result["document"]
+    assert set(fw) >= {"标题", "正文结构", "落款"}
+    assert fw["标题"].endswith(specs[0].doc_type)            # 标题含发文机关+事由+文种
+    assert doc.startswith(fw["标题"])                        # 全文以标题起
+    assert fw["落款"]["发文机关署名"] in doc                 # 含发文机关署名
+    assert result["engine"] == "deterministic"
+
+
+def test_compose_high_level_doctypes_issued_by_government():
+    """命令/议案/决议/公报等高级文种须由政府/综合机关发文（合法性）。"""
+    from gongwen_benchmark.scripts.compose_documents import build_specs
+    for s in build_specs(15):
+        if s.doc_type in ("命令", "议案", "决议", "公报"):
+            assert ("人民政府" in s.agency) or ("委" in s.agency)
+
+
 def test_repository_does_not_commit_binary_dataset_artifacts():
     assert not (ROOT / "element_dictionary.xlsx").exists()
     assert not (ROOT / "dataset_2_data_qa/records.parquet").exists()

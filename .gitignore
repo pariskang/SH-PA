@@ -5,3 +5,5 @@ __pycache__/
 # Binary exports are generated locally and intentionally not committed.
 gongwen_benchmark/element_dictionary.xlsx
 gongwen_benchmark/dataset_2_data_qa/*.parquet
+# LLM 现场生成的公文（非确定性，不入库；可审阅的确定性样例见 generated_samples/）
+gongwen_benchmark/generated_documents/

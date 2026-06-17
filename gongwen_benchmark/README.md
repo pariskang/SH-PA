@@ -74,9 +74,20 @@ gongwen_benchmark/
 ├─ dataset_2_data_qa/          # CN-GongWen-DataQA：records.csv + questions/answers/...
 ├─ evaluation/                 # scorer.py + 度量/规则/报告模板
 ├─ workflow/                   # 公文办理流转（OA）事件流示例
-├─ scripts/                    # 模式、生成器、校验器、真实数据导入、LiteLLM
+├─ generated_samples/          # 两阶段写作的确定性样例（写作框架 JSON + 整体公文）
+├─ scripts/                    # 模式、生成器、校验器、真实数据导入、LiteLLM、compose_documents
 ├─ agency_metadata.csv         # 37 个合成机关
 └─ element_dictionary.csv      # 18 个格式要素字典
+```
+
+## 公文写作（两阶段：写作框架 → 整体公文）
+
+`scripts/compose_documents.py` 基于明确 prompt 让 MiniMax 真正撰写公文：先生成写作框架(提纲)，
+再据框架生成整体公文全文，覆盖 15 种文种与短/中/长三种长度。无 API Key 时回退到确定性模板。
+
+```bash
+python gongwen_benchmark/scripts/compose_documents.py --count 15 --out gongwen_benchmark/generated_documents      # 有 MINIMAX_API_KEY 即调用 MiniMax
+python gongwen_benchmark/scripts/compose_documents.py --count 15 --no-llm --out gongwen_benchmark/generated_samples # 离线确定性
 ```
 
 ## 生成工件
