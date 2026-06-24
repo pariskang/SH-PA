@@ -208,7 +208,16 @@ def test_audit_dataset_integrity():
     report = validate(ROOT)
     assert report["audit"] >= 90
     assert report["audit_clean"] > 0 and report["audit_flawed"] > 0
-    assert report["audit_violation_coverage"] == 11   # 全部 11 类违规均有覆盖
+    assert report["audit_violation_coverage"] == 16   # 11 通用 + 5 医疗专属违规均有覆盖
+
+
+def test_audit_covers_medical_violations():
+    import collections
+    hidden = [json.loads(l) for l in (ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl").open(encoding="utf-8")]
+    cov = collections.Counter(v for h in hidden for v in h["violations"])
+    for med in ("overclaim_cure", "patient_privacy_leak", "research_as_clinical",
+                "ai_replaces_physician", "medical_insurance_fraud"):
+        assert cov[med] > 0, f"medical violation {med} not covered"
 
 
 def test_audit_scorer_perfect_on_gold():

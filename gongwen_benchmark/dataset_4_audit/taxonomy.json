@@ -44,6 +44,26 @@
     {
       "code": "cc_to_subordinate_upward",
       "desc": "上行文抄送下级机关"
+    },
+    {
+      "code": "overclaim_cure",
+      "desc": "夸大/保证疗效（治愈、根治、无副作用、疗效领先等）"
+    },
+    {
+      "code": "patient_privacy_leak",
+      "desc": "泄露可识别患者隐私（姓名、住址、病历截图等）"
+    },
+    {
+      "code": "research_as_clinical",
+      "desc": "把科研探索写成临床常规/全面推广，未经验证或伦理审批"
+    },
+    {
+      "code": "ai_replaces_physician",
+      "desc": "AI/系统替代医师独立诊疗（自动诊断、无需医生审核）"
+    },
+    {
+      "code": "medical_insurance_fraud",
+      "desc": "医保基金违规风险表述（分解住院、串换项目、诱导住院等）"
     }
   ],
   "scored_metrics": [

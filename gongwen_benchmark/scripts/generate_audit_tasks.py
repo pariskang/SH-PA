@@ -24,7 +24,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from benchmark_schema import FORBIDDEN_PHRASES
+from benchmark_schema import FORBIDDEN_PHRASES, MEDICAL_FORBIDDEN_PHRASES
 from generate_benchmarks import hashed, write_jsonl
 from generate_writing_prompts import WritingSpec, build_framework, build_writing_specs, deterministic_reference
 
@@ -44,6 +44,12 @@ VIOLATION_TYPES: tuple[tuple[str, str], ...] = (
     ("missing_signatory_upward", "上行文缺少签发人"),
     ("baogao_embeds_request", "报告夹带请示事项"),
     ("cc_to_subordinate_upward", "上行文抄送下级机关"),
+    # —— 医疗卫生专属违规 ——
+    ("overclaim_cure", "夸大/保证疗效（治愈、根治、无副作用、疗效领先等）"),
+    ("patient_privacy_leak", "泄露可识别患者隐私（姓名、住址、病历截图等）"),
+    ("research_as_clinical", "把科研探索写成临床常规/全面推广，未经验证或伦理审批"),
+    ("ai_replaces_physician", "AI/系统替代医师独立诊疗（自动诊断、无需医生审核）"),
+    ("medical_insurance_fraud", "医保基金违规风险表述（分解住院、串换项目、诱导住院等）"),
 )
 VIOLATION_CODES = tuple(code for code, _ in VIOLATION_TYPES)
 
@@ -139,6 +145,34 @@ def inj_cc_subordinate_upward(lines: list[str], spec: WritingSpec) -> None:
     lines.append("抄送：各县（市、区）有关单位。")
 
 
+def _insert_after_lead(lines: list[str], sentence: str) -> None:
+    for i, l in enumerate(lines):
+        if "如下：" in l:
+            lines.insert(i + 1, sentence)
+            return
+    lines.insert(min(1, len(lines)), sentence)
+
+
+def inj_overclaim_cure(lines: list[str], spec: WritingSpec) -> None:
+    _insert_after_lead(lines, "　　本疗法确保治愈、无副作用，治愈率100%、疗效领先。")
+
+
+def inj_patient_privacy(lines: list[str], spec: WritingSpec) -> None:
+    _insert_after_lead(lines, "　　患者张某，男，47岁，示范区幸福小区人，现附完整病历截图。")
+
+
+def inj_research_as_clinical(lines: list[str], spec: WritingSpec) -> None:
+    _insert_after_lead(lines, "　　本技术已证明可全面推广、替代传统治疗，无需进一步验证。")
+
+
+def inj_ai_replaces(lines: list[str], spec: WritingSpec) -> None:
+    _insert_after_lead(lines, "　　智能系统自动诊断并直接生成处方，无需医生审核。")
+
+
+def inj_insurance_fraud(lines: list[str], spec: WritingSpec) -> None:
+    _insert_after_lead(lines, "　　可通过分解住院、串换项目提高医保结算金额。")
+
+
 # code -> (applicable(spec), apply(lines, spec))
 INJECTORS: dict[str, tuple[Callable[[WritingSpec], bool], Callable[[list[str], WritingSpec], None]]] = {
     "title_missing_doctype": (lambda s: True, inj_title_missing),
@@ -152,12 +186,19 @@ INJECTORS: dict[str, tuple[Callable[[WritingSpec], bool], Callable[[list[str], W
     "missing_signatory_upward": (lambda s: s.needs_signatory, inj_signatory_removed),
     "baogao_embeds_request": (lambda s: s.doc_type == "报告", inj_baogao_request),
     "cc_to_subordinate_upward": (lambda s: s.direction == "upward", inj_cc_subordinate_upward),
+    "overclaim_cure": (lambda s: s.policy_domain == "医疗卫生", inj_overclaim_cure),
+    "patient_privacy_leak": (lambda s: s.policy_domain == "医疗卫生", inj_patient_privacy),
+    "research_as_clinical": (lambda s: s.policy_domain == "医疗卫生", inj_research_as_clinical),
+    "ai_replaces_physician": (lambda s: s.policy_domain == "医疗卫生", inj_ai_replaces),
+    "medical_insurance_fraud": (lambda s: s.policy_domain == "医疗卫生", inj_insurance_fraud),
 }
 # 固定施加顺序，保证字号类注入可叠加（先加“第”再换方括号）
 CANONICAL_ORDER = (
     "title_missing_doctype", "seq_add_di", "year_square_bracket", "date_chinese",
     "ordinal_dunhao", "hype_language", "fabricated_legal_article", "qingshi_multihead",
     "missing_signatory_upward", "baogao_embeds_request", "cc_to_subordinate_upward",
+    "overclaim_cure", "patient_privacy_leak", "research_as_clinical",
+    "ai_replaces_physician", "medical_insurance_fraud",
 )
 
 
@@ -190,6 +231,17 @@ def detect_violations(text: str, spec: WritingSpec) -> set[str]:
         found.add("baogao_embeds_request")
     if spec.direction == "upward" and "抄送：" in text:
         found.add("cc_to_subordinate_upward")
+    # 医疗卫生专属违规
+    if any(p in text for p in ("确保治愈", "治愈率100%", "疗效领先", "无副作用", "根治", "包治", "保证治好", "完全避免并发症", "一次见效")):
+        found.add("overclaim_cure")
+    if "病历截图" in text or "小区人" in text or re.search(r"患者[张李王刘赵]某", text):
+        found.add("patient_privacy_leak")
+    if "全面推广" in text and "替代" in text:
+        found.add("research_as_clinical")
+    if "无需医生审核" in text:
+        found.add("ai_replaces_physician")
+    if "分解住院" in text or "串换项目" in text:
+        found.add("medical_insurance_fraud")
     return found
 
 
@@ -198,7 +250,9 @@ def _inject(spec: WritingSpec) -> tuple[str, list[str]]:
     文种专属违规（请示多头主送、报告夹请示、上行文缺签发人/抄送下级）优先入选，保证类型覆盖。"""
     correct = deterministic_reference(spec, build_framework(spec))
     doc_specific = {"qingshi_multihead", "baogao_embeds_request",
-                    "missing_signatory_upward", "cc_to_subordinate_upward"}
+                    "missing_signatory_upward", "cc_to_subordinate_upward",
+                    "overclaim_cure", "patient_privacy_leak", "research_as_clinical",
+                    "ai_replaces_physician", "medical_insurance_fraud"}
     applicable = [c for c in CANONICAL_ORDER if INJECTORS[c][0](spec)]
     applicable.sort(key=lambda c: (0 if c in doc_specific else 1, hashed("aord", spec.spec_id, c)))
     k = min(hashed("ak", spec.spec_id) % 5, len(applicable))  # 0..4，0 即合规对照

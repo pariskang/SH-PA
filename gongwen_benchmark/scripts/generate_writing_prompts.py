@@ -34,6 +34,8 @@ from benchmark_schema import (
     EXECUTABLE_DOC_TYPES,
     FORBIDDEN_PHRASES,
     MEDICAL_AREAS,
+    MEDICAL_FORBIDDEN_PHRASES,
+    MEDICAL_STANDARDS,
     SECRET_LEVELS,
     SELF_CHECK,
     STANDARDS,
@@ -283,6 +285,14 @@ def _rule_constraints(spec: WritingSpec) -> list[str]:
         "数字用法规范，发文顺序号不编虚位、不加“第”（GB/T 15835）",
         "语言稳准短实，不使用夸大、网络化或绝对化表述",
     ]
+    if spec.policy_domain == "医疗卫生":
+        rules += [
+            "涉疗效/技术/药品须区分临床指南推荐与探索性应用，不得保证疗效或绝对化表述",
+            "涉患者信息须最小必要、去标识化，不得泄露可识别个人信息",
+            "涉手术/特殊检查治疗/临床研究须体现风险告知、替代方案与知情同意",
+            "涉人的研究或数据使用须经伦理审查与授权；AI 仅作辅助决策、须医务人员审核确认，不替代医师",
+            "涉医保/收费/病案/处方须符合基金监管，不得诱导住院、分解住院、串换项目、过度检查",
+        ]
     return rules
 
 
@@ -347,8 +357,8 @@ def build_rubric(spec: WritingSpec) -> dict[str, Any]:
         "forbidden_traps": _forbidden_traps(spec),
         "pitfalls": _pitfalls(spec),
         "require_executability": spec.doc_type in EXECUTABLE_DOC_TYPES and spec.direction == "downward",
-        "forbidden_phrases": list(FORBIDDEN_PHRASES),
-        "standards": list(STANDARDS),
+        "forbidden_phrases": list(FORBIDDEN_PHRASES) + (list(MEDICAL_FORBIDDEN_PHRASES) if spec.policy_domain == "医疗卫生" else []),
+        "standards": list(STANDARDS) + (list(MEDICAL_STANDARDS) if spec.policy_domain == "医疗卫生" else []),
     }
 
 
@@ -454,11 +464,14 @@ def deterministic_prompt(spec: WritingSpec) -> str:
     rules = "；".join(_rule_constraints(spec))
     traps = "、".join(_forbidden_traps(spec))
     pitfalls = "；".join(_pitfalls(spec))
+    std = "、".join(STANDARDS)
+    if spec.policy_domain == "医疗卫生":
+        std += "；医疗卫生场景还须遵循" + "、".join(MEDICAL_STANDARDS[:6]) + "等"
     return (
         f"请撰写一篇《{spec.doc_type}》{usage}。发文机关：{spec.agency}；行文方向：{DIR_CN[spec.direction]}；"
         f"主送机关：{spec.recipient or '（公布性公文可不标主送）'}；事由：{spec.subject}；政策方向：{dom}。\n"
         f"目标篇幅：{info['label']}文，正文不少于{info['min_sections']}个层次，全文约 {lo}-{hi} tokens。\n"
-        f"格式与行文要求：严格遵循{'、'.join(STANDARDS)}；{rules}。\n"
+        f"格式与行文要求：严格遵循{std}；{rules}。\n"
         f"须规避的雷区：{traps}；并注意：{pitfalls}（不得编造具体发文字号、法规条款、真实机关或个人姓名）。\n"
         f"仅输出公文文本本身（标题、主送机关、正文、附件说明如有、发文机关署名、成文日期）。"
     )
@@ -478,8 +491,10 @@ def _spec_brief(spec: WritingSpec) -> dict[str, Any]:
         "政策方向": spec.policy_domain + (f"（{spec.medical_topic}）" if spec.medical_topic else ""),
         "目标token区间": list(info["target_tokens"]), "正文最少层次": info["min_sections"],
         "行文规则": _rule_constraints(spec), "须规避雷区": _forbidden_traps(spec),
-        "典型雷区": _pitfalls(spec), "须遵循标准": list(STANDARDS),
+        "典型雷区": _pitfalls(spec),
+        "须遵循标准": list(STANDARDS) + (list(MEDICAL_STANDARDS) if spec.policy_domain == "医疗卫生" else []),
         "须含可执行要素": spec.doc_type in EXECUTABLE_DOC_TYPES and spec.direction == "downward",
+        "医疗须规避表述": list(MEDICAL_FORBIDDEN_PHRASES) if spec.policy_domain == "医疗卫生" else [],
     }
 
 
@@ -556,6 +571,8 @@ def build_writing_taxonomy() -> dict[str, Any]:
         },
         "doc_types": [dt.name for dt in DOC_TYPES],
         "standards": list(STANDARDS),
+        "medical_standards": list(MEDICAL_STANDARDS),
+        "medical_forbidden_phrases": list(MEDICAL_FORBIDDEN_PHRASES),
         "framework_dimensions": ["标题三要素", "层次序数(一、（一）1.)", "行文方向规则", "签发人/主送/附注",
                                  "附件/抄送", "可执行性(责任-时限-反馈)", "结尾用语", "署名与成文日期"],
         "scored_dimensions": ["length", "title", "structure", "closing", "signatory", "recipient",
