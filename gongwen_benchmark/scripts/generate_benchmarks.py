@@ -368,11 +368,12 @@ def write_reference_files(agencies: list[dict[str, Any]]) -> None:
 # Q 数据集（公文写作/理解问题集）
 # --------------------------------------------------------------------------------------
 Q_PROPORTIONS = {
-    "single_doc_type": 0.17, "multi_doc_type": 0.07, "cross_element_chain": 0.09,
-    "temporal_compound": 0.06, "conflicting_signals": 0.07, "boundary_precision": 0.06,
+    "single_doc_type": 0.15, "multi_doc_type": 0.07, "cross_element_chain": 0.09,
+    "temporal_compound": 0.06, "conflicting_signals": 0.07, "boundary_precision": 0.05,
     "negative_enumeration": 0.06, "management_open": 0.05, "ambiguous_boundary": 0.05,
-    "hallucination_trap": 0.10, "spoken_noisy": 0.10,
+    "hallucination_trap": 0.09, "spoken_noisy": 0.09,
     "doctype_misuse": 0.04, "addressing_relation": 0.04, "authority_boundary": 0.04,
+    "medical_compliance": 0.05,
 }
 Q_DIFFICULTY = {
     "single_doc_type": "easy", "spoken_noisy": "medium", "multi_doc_type": "medium",
@@ -380,6 +381,7 @@ Q_DIFFICULTY = {
     "temporal_compound": "hard", "conflicting_signals": "hard", "boundary_precision": "hard",
     "negative_enumeration": "hard", "hallucination_trap": "hard",
     "doctype_misuse": "medium", "addressing_relation": "hard", "authority_boundary": "hard",
+    "medical_compliance": "hard",
 }
 
 SINGLE_SCENARIOS = (
@@ -600,13 +602,26 @@ AUTHORITY_MED = (
     "某卫健委内设的医政医管处拟以本处名义对外印发文件，是否符合行文权限规定？应如何处理？",
     "卫生部门拟代本级政府作出医疗机构设置的决定，是否超越职权？应如何把握权限边界？",
 )
+# 医疗合规辨析题（恒为医疗方向；对标疗效/隐私/伦理/AI/医保/公卫等合规线）
+MED_COMPLIANCE = (
+    "某科室拟在医院公众号宣传“××疗法确保治愈、无副作用、有效率100%”，存在哪些医疗广告与疗效表述合规问题？应如何稳妥修改？",
+    "一份病例通报写明“患者张某，男，47岁，××小区人”并附完整病历截图，可能违反哪些患者隐私与敏感个人信息保护要求？应如何处理？",
+    "某临床研究使用患者既往诊疗数据开展，但未经伦理审查即实施，存在什么问题？应如何依《涉及人的生命科学和医学研究伦理审查办法》补正？",
+    "医院信息科文件称“AI 系统自动诊断并直接生成处方、无需医生审核”，这种定位错在哪里？应如何规范表述其辅助决策属性？",
+    "某医保整改报告把“分解住院、串换项目”轻描淡写为“编码误差”，存在什么医保基金监管风险？应如何如实表述与整改？",
+    "一份院感情况说明把“疑似聚集性感染”直接写成“已确诊暴发”并拟由科室对外发布，存在哪些公共卫生报告权限与表述问题？",
+    "科研项目申报书写“本项目已证明××技术可广泛替代传统治疗”，违反医疗技术临床应用与科研诚信的哪些要求？应如何稳妥表述？",
+    "对外健康科普稿将具体药品、购买链接与医生“保证治好”的承诺绑定，可能触及医疗广告与互联网广告的哪些红线？",
+)
 
 
 def q_is_medical(qtype: str, i: int) -> bool:
-    """边界精度为纯格式国标题，保持通用；其余约 55% 走医疗方向，使整体医疗占比≈50%。"""
+    """边界精度为纯格式国标题，保持通用；医疗合规题恒为医疗；其余约 52% 走医疗方向，使整体医疗占比≈50%。"""
     if qtype == "boundary_precision":
         return False
-    return hashed("qmed", qtype, i) % 100 < 55
+    if qtype == "medical_compliance":
+        return True
+    return hashed("qmed", qtype, i) % 100 < 52
 
 
 def _counts(proportions: dict[str, float], total: int, balancer: str) -> dict[str, int]:
@@ -700,6 +715,11 @@ def build_q_dataset(agencies: list[dict[str, Any]], total: int, use_llm: bool, c
     for i in range(counts["authority_boundary"]):
         it, q = variant("authority_boundary", i, AUTHORITY_MED, AUTHORITY)
         it.update(question=q, expected_query_type="POLICY_EXPLANATION", expected_slots={"intent": "行文权限边界"})
+        items.append(it)
+    for i in range(counts["medical_compliance"]):
+        it = base("medical_compliance", med=True)  # 医疗合规题恒为医疗方向
+        it.update(question=MED_COMPLIANCE[i % len(MED_COMPLIANCE)],
+                  expected_query_type="POLICY_EXPLANATION", expected_slots={"intent": "医疗合规辨析"})
         items.append(it)
 
     # 赋予 question_id，应用尾缀变体（控制 padding 占比 < 40%）

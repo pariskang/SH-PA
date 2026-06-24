@@ -137,6 +137,15 @@ def test_repository_does_not_commit_binary_dataset_artifacts():
 
 
 # --- CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt ---
+def test_medical_compliance_question_type():
+    """医疗合规辨析题须存在、恒为医疗方向且为高难。"""
+    hidden = [json.loads(l) for l in (ROOT / "dataset_1_question_only/questions_with_hidden_metadata.jsonl").open(encoding="utf-8")]
+    mc = [h for h in hidden if h["question_type"] == "medical_compliance"]
+    assert len(mc) >= 20
+    assert all(h["policy_domain"] == "医疗卫生" for h in mc)
+    assert all(h["difficulty"] == "hard" for h in mc)
+
+
 def test_writing_dataset_buckets_and_coverage():
     report = validate(ROOT)
     assert report["writing"] >= 90

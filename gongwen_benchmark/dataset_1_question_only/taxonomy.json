@@ -270,7 +270,8 @@
     "spoken_noisy",
     "doctype_misuse",
     "addressing_relation",
-    "authority_boundary"
+    "authority_boundary",
+    "medical_compliance"
   ],
   "query_types": [
     "DOC_TYPE_SELECTION",

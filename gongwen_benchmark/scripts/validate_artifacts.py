@@ -32,7 +32,7 @@ REQUIRED_Q_TYPES = {
     "single_doc_type", "multi_doc_type", "cross_element_chain", "temporal_compound",
     "conflicting_signals", "boundary_precision", "negative_enumeration",
     "management_open", "ambiguous_boundary", "hallucination_trap", "spoken_noisy",
-    "doctype_misuse", "addressing_relation", "authority_boundary",
+    "doctype_misuse", "addressing_relation", "authority_boundary", "medical_compliance",
 }
 
 
