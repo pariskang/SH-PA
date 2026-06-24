@@ -5,3 +5,6 @@ __pycache__/
 # Binary exports are generated locally and intentionally not committed.
 gongwen_benchmark/element_dictionary.xlsx
 gongwen_benchmark/dataset_2_data_qa/*.parquet
+# Compose（两阶段公文写作）产物本地生成，不入库
+gongwen_benchmark/generated_documents/
+gongwen_benchmark/generated_samples/

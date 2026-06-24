@@ -18,7 +18,7 @@ GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向
 
 ## 在 Google Colab 中复现
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/claude/determined-lamport-vyvmpd/notebooks/CN_GongWen_Reproduce_Colab.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/main/notebooks/CN_GongWen_Reproduce_Colab.ipynb)
 
 **一键完美复现**：[`notebooks/CN_GongWen_Reproduce_Colab.ipynb`](notebooks/CN_GongWen_Reproduce_Colab.ipynb)
 克隆仓库 → 安装依赖（含中文字体）→（可选）配置 **MiniMax** → 从零重新生成 →
