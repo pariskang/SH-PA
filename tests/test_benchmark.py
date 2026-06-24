@@ -141,8 +141,32 @@ def test_writing_scorer_is_perfect_on_reference():
     path = ROOT / "dataset_3_writing/writing_prompts_with_rubric.jsonl"
     scores = dataset3_writing_score(path, path)
     assert scores["overall_compliance"] == 1.0
-    for dim in ("length", "title", "structure", "closing", "signatory", "recipient", "directional", "trap_avoidance"):
+    for dim in ("length", "title", "structure", "closing", "signatory", "recipient", "directional",
+                "executability", "punctuation", "language_safety", "trap_avoidance"):
         assert scores[f"{dim}_compliance"] == 1.0
+
+
+def test_writing_scorer_discriminates_bad_submissions(tmp_path):
+    """打分器须能区分不合格公文：长度超界、缺署名/日期、夸大用语、标点错误等应失分。"""
+    from dataclasses import asdict
+    from gongwen_benchmark.scripts.generate_writing_prompts import (
+        build_writing_specs, build_rubric, build_framework, deterministic_reference,
+    )
+    spec = next(s for s in build_writing_specs(90) if s.doc_type == "通知" and s.direction == "downward")
+    gold_row = {"question_id": spec.spec_id, "rubric": build_rubric(spec), "spec": asdict(spec),
+                "reference_answer": deterministic_reference(spec, build_framework(spec))}
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(json.dumps(gold_row, ensure_ascii=False) + "\n", encoding="utf-8")
+    # 故意写差：标题无三要素、无层次序号、无署名/日期、含夸大词、第二层序号后误加顿号、远短于目标
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text(json.dumps({"question_id": spec.spec_id,
+        "answer": "关于工作的说明\n（一）、全方位赋能，绝对领先，完美闭环。"}, ensure_ascii=False) + "\n", encoding="utf-8")
+    s = dataset3_writing_score(gold, bad)
+    assert s["overall_compliance"] < 0.5
+    assert s["language_safety_compliance"] == 0.0   # 含夸大/网络化词
+    assert s["punctuation_compliance"] == 0.0        # “（一）、”误用且缺六角括号字号
+    assert s["closing_compliance"] == 0.0            # 无署名/成文日期
+    assert s["length_compliance"] == 0.0             # 远短于目标 token 区间
 
 
 def test_writing_public_split_has_no_gold():

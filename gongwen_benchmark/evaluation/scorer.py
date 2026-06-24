@@ -210,8 +210,14 @@ def dataset2_score(answer_path: Path, pred_path: Path, tolerance: float = 0.01) 
 _ORDINAL_RE = re.compile(r"[一二三四五六七八九十]、")
 _DATE_RE = re.compile(r"20\d{2}年\d{1,2}月\d{1,2}日")
 _ARTICLE_RE = re.compile(r"第\d+条")
+_L2_BAD_RE = re.compile(r"（[一二三四五六七八九十]）、")  # 第二层序号后误加顿号
+_L4_BAD_RE = re.compile(r"（\d+）、")                      # 第四层序号后误加顿号
+_DEADLINE_RE = re.compile(r"\d{1,2}月\d{1,2}日前")
 _SECRET_WORDS = ("绝密", "机密", "秘密")
-_WRITING_DIMS = ("length", "title", "structure", "closing", "signatory", "recipient", "directional", "trap_avoidance")
+_DEFAULT_FORBIDDEN = ("史无前例", "极其重要地", "全方位赋能", "打造最强生态", "颠覆式创新",
+                      "绝对领先", "完美闭环", "全面解决所有问题", "遥遥领先", "震撼发布")
+_WRITING_DIMS = ("length", "title", "structure", "closing", "signatory", "recipient", "directional",
+                 "executability", "punctuation", "language_safety", "trap_avoidance")
 
 
 def _writing_checks(answer: str, rubric: dict, spec: dict) -> dict[str, tuple[bool, bool]]:
@@ -221,8 +227,12 @@ def _writing_checks(answer: str, rubric: dict, spec: dict) -> dict[str, tuple[bo
     agency = spec.get("agency", "")
     recipient = spec.get("recipient", "")
     secret = spec.get("security", "公开") in _SECRET_WORDS
+    forbidden = tuple(rubric.get("forbidden_phrases") or _DEFAULT_FORBIDDEN)
     lines = [ln for ln in answer.splitlines() if ln.strip()]
     recipient_line = next((ln for ln in lines if ln.strip().endswith("：")), "")
+    has_resp = any(w in answer for w in ("责任", "牵头", "负责"))
+    has_deadline = bool(_DEADLINE_RE.search(answer)) or any(w in answer for w in ("时限", "期限", "年底前", "季度", "月底前"))
+    has_report = any(w in answer for w in ("报送", "反馈", "汇总", "上报"))
     return {
         "length": (True, lo <= estimate_tokens(answer) <= hi),
         "title": (True, any(doc_type and doc_type in ln and "关于" in ln and (not agency or agency in ln) for ln in lines)),
@@ -231,6 +241,10 @@ def _writing_checks(answer: str, rubric: dict, spec: dict) -> dict[str, tuple[bo
         "signatory": (bool(rubric.get("needs_signatory")), "签发人" in answer),
         "recipient": (bool(recipient), recipient in answer),
         "directional": (doc_type == "请示", "、" not in recipient_line and "各" not in recipient_line),
+        "executability": (bool(rubric.get("require_executability")), has_resp and has_deadline and has_report),
+        "punctuation": (True, "〔" in answer and "〕" in answer
+                        and not _L2_BAD_RE.search(answer) and not _L4_BAD_RE.search(answer)),
+        "language_safety": (True, all(p not in answer for p in forbidden)),
         "trap_avoidance": (True, not _ARTICLE_RE.search(answer) and (secret or all(w not in answer for w in _SECRET_WORDS))),
     }
 

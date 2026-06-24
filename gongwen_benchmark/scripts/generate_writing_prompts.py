@@ -28,7 +28,18 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from benchmark_schema import DOC_TYPES, MEDICAL_AREAS, SECRET_LEVELS, TRAP_TYPES, doc_type_by_name
+from benchmark_schema import (
+    DOC_TYPE_GUIDE,
+    DOC_TYPES,
+    EXECUTABLE_DOC_TYPES,
+    FORBIDDEN_PHRASES,
+    MEDICAL_AREAS,
+    SECRET_LEVELS,
+    SELF_CHECK,
+    STANDARDS,
+    TRAP_TYPES,
+    doc_type_by_name,
+)
 from generate_benchmarks import ACTION_VERBS, DIR_CN, SUBJECTS, agency_metadata, hashed, pick, write_jsonl
 from litellm_minimax import LiteLLMConfig, completion_json
 from tokens import estimate_tokens
@@ -262,6 +273,16 @@ def _rule_constraints(spec: WritingSpec) -> list[str]:
         rules.append("公布性公文可不标注主送机关")
     if spec.security in SECRET_LEVELS:
         rules.append("涉密公文须标注份号与密级、保密期限")
+    guide = DOC_TYPE_GUIDE.get(spec.doc_type)
+    if guide:
+        rules += list(guide.key_points)
+    if spec.doc_type in EXECUTABLE_DOC_TYPES and spec.direction == "downward":
+        rules.append("须写明责任单位、完成时限与报送/反馈要求，避免只有抽象表态（依据—目标—任务—责任—时限—保障—反馈）")
+    rules += [
+        "发文字号年份用六角括号〔〕，“（一）”“（1）”等层次序号后不加顿号（GB/T 15834）",
+        "数字用法规范，发文顺序号不编虚位、不加“第”（GB/T 15835）",
+        "语言稳准短实，不使用夸大、网络化或绝对化表述",
+    ]
     return rules
 
 
@@ -279,6 +300,16 @@ def _forbidden_traps(spec: WritingSpec) -> list[str]:
     if spec.policy_domain == "医疗卫生":
         traps.append("leak_real_agency_identity")
     return sorted(set(traps), key=traps.index)
+
+
+def _pitfalls(spec: WritingSpec) -> list[str]:
+    """该文种的典型雷区（自然语言，来自文种辨析表与政策政治表述雷区）。"""
+    guide = DOC_TYPE_GUIDE.get(spec.doc_type)
+    items = list(guide.pitfalls) if guide else []
+    if spec.direction == "upward":
+        items.append("主送上级领导个人或多头主送")
+    items.append("把未出台事项写成已决定、把部门意见写成党委政府决定")
+    return list(dict.fromkeys(items))
 
 
 def build_framework(spec: WritingSpec) -> dict[str, Any]:
@@ -314,6 +345,10 @@ def build_rubric(spec: WritingSpec) -> dict[str, Any]:
         "single_recipient": spec.single_recipient,
         "rule_constraints": _rule_constraints(spec),
         "forbidden_traps": _forbidden_traps(spec),
+        "pitfalls": _pitfalls(spec),
+        "require_executability": spec.doc_type in EXECUTABLE_DOC_TYPES and spec.direction == "downward",
+        "forbidden_phrases": list(FORBIDDEN_PHRASES),
+        "standards": list(STANDARDS),
     }
 
 
@@ -359,6 +394,9 @@ def deterministic_reference(spec: WritingSpec, framework: dict[str, Any]) -> str
     header.append("　　" + _lead(spec))
 
     tail: list[str] = []
+    if spec.doc_type in EXECUTABLE_DOC_TYPES and spec.direction == "downward":
+        d = hashed("wexec", spec.spec_id) % 27 + 1   # 可执行性：责任主体+完成时限+报送反馈
+        tail.append(f"　　各责任单位要明确分工、压实责任，于2026年7月{d}日前完成，并将落实情况及时报送我机关。")
     if spec.has_attachment:
         tail.append("　　附件：1.（示例附件名称）")
     tail += ["", "　　" + CLOSING.get(spec.doc_type, "特此通知。")]
@@ -411,14 +449,17 @@ def deterministic_prompt(spec: WritingSpec) -> str:
     info = LENGTH_BUCKETS[spec.length]
     lo, hi = info["target_tokens"]
     dom = spec.policy_domain + (f"（{spec.medical_area}／{spec.medical_topic}）" if spec.medical_topic else "")
+    guide = DOC_TYPE_GUIDE.get(spec.doc_type)
+    usage = f"（{guide.usage}）" if guide else ""
     rules = "；".join(_rule_constraints(spec))
     traps = "、".join(_forbidden_traps(spec))
+    pitfalls = "；".join(_pitfalls(spec))
     return (
-        f"请撰写一篇《{spec.doc_type}》。发文机关：{spec.agency}；行文方向：{DIR_CN[spec.direction]}；"
+        f"请撰写一篇《{spec.doc_type}》{usage}。发文机关：{spec.agency}；行文方向：{DIR_CN[spec.direction]}；"
         f"主送机关：{spec.recipient or '（公布性公文可不标主送）'}；事由：{spec.subject}；政策方向：{dom}。\n"
         f"目标篇幅：{info['label']}文，正文不少于{info['min_sections']}个层次，全文约 {lo}-{hi} tokens。\n"
-        f"格式与行文要求：严格遵循《党政机关公文处理工作条例》(2012) 与 GB/T 9704—2012；{rules}。\n"
-        f"须规避的雷区：{traps}（不得编造具体发文字号、法规条款、真实机关或个人姓名）。\n"
+        f"格式与行文要求：严格遵循{'、'.join(STANDARDS)}；{rules}。\n"
+        f"须规避的雷区：{traps}；并注意：{pitfalls}（不得编造具体发文字号、法规条款、真实机关或个人姓名）。\n"
         f"仅输出公文文本本身（标题、主送机关、正文、附件说明如有、发文机关署名、成文日期）。"
     )
 
@@ -437,6 +478,8 @@ def _spec_brief(spec: WritingSpec) -> dict[str, Any]:
         "政策方向": spec.policy_domain + (f"（{spec.medical_topic}）" if spec.medical_topic else ""),
         "目标token区间": list(info["target_tokens"]), "正文最少层次": info["min_sections"],
         "行文规则": _rule_constraints(spec), "须规避雷区": _forbidden_traps(spec),
+        "典型雷区": _pitfalls(spec), "须遵循标准": list(STANDARDS),
+        "须含可执行要素": spec.doc_type in EXECUTABLE_DOC_TYPES and spec.direction == "downward",
     }
 
 
@@ -512,9 +555,14 @@ def build_writing_taxonomy() -> dict[str, Any]:
             for k, v in LENGTH_BUCKETS.items()
         },
         "doc_types": [dt.name for dt in DOC_TYPES],
-        "framework_dimensions": ["标题三要素", "层次序数(一、（一）1.)", "行文方向规则", "签发人/主送/附注", "附件/抄送", "结尾用语", "署名与成文日期"],
-        "scored_dimensions": ["length", "title", "structure", "closing", "signatory", "recipient", "directional", "trap_avoidance"],
+        "standards": list(STANDARDS),
+        "framework_dimensions": ["标题三要素", "层次序数(一、（一）1.)", "行文方向规则", "签发人/主送/附注",
+                                 "附件/抄送", "可执行性(责任-时限-反馈)", "结尾用语", "署名与成文日期"],
+        "scored_dimensions": ["length", "title", "structure", "closing", "signatory", "recipient",
+                              "directional", "executability", "punctuation", "language_safety", "trap_avoidance"],
         "forbidden_trap_pool": list(TRAP_TYPES),
+        "forbidden_phrases": list(FORBIDDEN_PHRASES),
+        "self_check": list(SELF_CHECK),
     }
 
 
