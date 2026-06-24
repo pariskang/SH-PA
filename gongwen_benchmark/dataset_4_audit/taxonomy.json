@@ -1,0 +1,82 @@
+{
+  "description": "CN-GongWen-Audit：公文审核/纠错（注入雷区→找出违规）",
+  "violation_types": [
+    {
+      "code": "title_missing_doctype",
+      "desc": "标题缺少文种（标题三要素不全）"
+    },
+    {
+      "code": "year_square_bracket",
+      "desc": "发文字号年份误用方括号（应为六角括号〔〕）"
+    },
+    {
+      "code": "seq_add_di",
+      "desc": "发文字号顺序号误加“第”字"
+    },
+    {
+      "code": "date_chinese",
+      "desc": "成文日期误用汉字数字（应为阿拉伯数字）"
+    },
+    {
+      "code": "ordinal_dunhao",
+      "desc": "第二层层次序号“（一）”后误加顿号"
+    },
+    {
+      "code": "hype_language",
+      "desc": "使用夸大/网络化/绝对化等不规范表述"
+    },
+    {
+      "code": "fabricated_legal_article",
+      "desc": "编造法规条款依据（如“第99条”）"
+    },
+    {
+      "code": "qingshi_multihead",
+      "desc": "请示多头主送（违反一文一事、单一主送）"
+    },
+    {
+      "code": "missing_signatory_upward",
+      "desc": "上行文缺少签发人"
+    },
+    {
+      "code": "baogao_embeds_request",
+      "desc": "报告夹带请示事项"
+    },
+    {
+      "code": "cc_to_subordinate_upward",
+      "desc": "上行文抄送下级机关"
+    },
+    {
+      "code": "overclaim_cure",
+      "desc": "夸大/保证疗效（治愈、根治、无副作用、疗效领先等）"
+    },
+    {
+      "code": "patient_privacy_leak",
+      "desc": "泄露可识别患者隐私（姓名、住址、病历截图等）"
+    },
+    {
+      "code": "research_as_clinical",
+      "desc": "把科研探索写成临床常规/全面推广，未经验证或伦理审批"
+    },
+    {
+      "code": "ai_replaces_physician",
+      "desc": "AI/系统替代医师独立诊疗（自动诊断、无需医生审核）"
+    },
+    {
+      "code": "medical_insurance_fraud",
+      "desc": "医保基金违规风险表述（分解住院、串换项目、诱导住院等）"
+    }
+  ],
+  "audit_metrics": [
+    "violation_precision",
+    "violation_recall",
+    "violation_f1",
+    "exact_match_rate",
+    "clean_doc_accuracy"
+  ],
+  "rewrite_metrics": [
+    "violations_removed_rate",
+    "facts_preserved_rate",
+    "format_valid_rate",
+    "overall_rewrite_compliance"
+  ]
+}

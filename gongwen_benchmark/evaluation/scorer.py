@@ -16,8 +16,23 @@ import argparse
 import json
 import math
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+try:
+    from tokens import estimate_tokens  # 与生成/校验共用同一 token 估算口径
+except Exception:  # 评测方仅取走 scorer.py 时的等价回退（公式与 tokens.py 一致）
+    _CJK_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿　-〿＀-￯]")
+
+    def estimate_tokens(text: str) -> int:
+        if not text:
+            return 0
+        cjk = len(_CJK_RE.findall(text))
+        return cjk + (len(text) - cjk + 3) // 4
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -192,14 +207,165 @@ def dataset2_score(answer_path: Path, pred_path: Path, tolerance: float = 0.01) 
     }
 
 
+_ORDINAL_RE = re.compile(r"[一二三四五六七八九十]、")
+_DATE_RE = re.compile(r"20\d{2}年\d{1,2}月\d{1,2}日")
+_ARTICLE_RE = re.compile(r"第\d+条")
+_L2_BAD_RE = re.compile(r"（[一二三四五六七八九十]）、")  # 第二层序号后误加顿号
+_L4_BAD_RE = re.compile(r"（\d+）、")                      # 第四层序号后误加顿号
+_DEADLINE_RE = re.compile(r"\d{1,2}月\d{1,2}日前")
+_SECRET_WORDS = ("绝密", "机密", "秘密")
+_DEFAULT_FORBIDDEN = ("史无前例", "极其重要地", "全方位赋能", "打造最强生态", "颠覆式创新",
+                      "绝对领先", "完美闭环", "全面解决所有问题", "遥遥领先", "震撼发布")
+_WRITING_DIMS = ("length", "title", "structure", "closing", "signatory", "recipient", "directional",
+                 "executability", "punctuation", "language_safety", "trap_avoidance")
+
+
+def _writing_checks(answer: str, rubric: dict, spec: dict) -> dict[str, tuple[bool, bool]]:
+    """维度 -> (是否适用, 是否通过)；仅对适用维度计分。金标准提供 rubric/spec，预测提供公文文本。"""
+    lo, hi = rubric.get("target_tokens", (0, 10 ** 9))
+    doc_type = rubric.get("doc_type_name") or spec.get("doc_type", "")
+    agency = spec.get("agency", "")
+    recipient = spec.get("recipient", "")
+    secret = spec.get("security", "公开") in _SECRET_WORDS
+    forbidden = tuple(rubric.get("forbidden_phrases") or _DEFAULT_FORBIDDEN)
+    lines = [ln for ln in answer.splitlines() if ln.strip()]
+    recipient_line = next((ln for ln in lines if ln.strip().endswith("：")), "")
+    has_resp = any(w in answer for w in ("责任", "牵头", "负责"))
+    has_deadline = bool(_DEADLINE_RE.search(answer)) or any(w in answer for w in ("时限", "期限", "年底前", "季度", "月底前"))
+    has_report = any(w in answer for w in ("报送", "反馈", "汇总", "上报"))
+    return {
+        "length": (True, lo <= estimate_tokens(answer) <= hi),
+        "title": (True, any(doc_type and doc_type in ln and "关于" in ln and (not agency or agency in ln) for ln in lines)),
+        "structure": (True, len(_ORDINAL_RE.findall(answer)) >= rubric.get("min_sections", 1)),
+        "closing": (True, (not agency or agency in answer) and bool(_DATE_RE.search(answer))),
+        "signatory": (bool(rubric.get("needs_signatory")), "签发人" in answer),
+        "recipient": (bool(recipient), recipient in answer),
+        "directional": (doc_type == "请示", "、" not in recipient_line and "各" not in recipient_line),
+        "executability": (bool(rubric.get("require_executability")), has_resp and has_deadline and has_report),
+        "punctuation": (True, "〔" in answer and "〕" in answer
+                        and not _L2_BAD_RE.search(answer) and not _L4_BAD_RE.search(answer)),
+        "language_safety": (True, all(p not in answer for p in forbidden)),
+        "trap_avoidance": (True, not _ARTICLE_RE.search(answer) and (secret or all(w not in answer for w in _SECRET_WORDS))),
+    }
+
+
+def _writing_answer(row: dict) -> str:
+    for key in ("answer", "document", "answer_text", "reference_answer"):
+        if row.get(key):
+            return str(row[key])
+    return ""
+
+
+def dataset3_writing_score(rubric_path: Path, pred_path: Path) -> dict[str, float]:
+    """公文写作测试 prompt 的确定性结构化评分：标题三要素 / 层次 / 署名日期 / 签发人 / 主送 /
+    行文方向 / 雷区规避 / 目标 token 长度。金标准自评应为满分。"""
+    gold = {row["question_id"]: row for row in read_jsonl(rubric_path)}
+    pred = {row["question_id"]: row for row in read_jsonl(pred_path)}
+    total = len(gold)
+    if total == 0:
+        return {}
+    hit = {d: 0 for d in _WRITING_DIMS}
+    applicable = {d: 0 for d in _WRITING_DIMS}
+    overall = 0.0
+    for qid, gold_row in gold.items():
+        checks = _writing_checks(_writing_answer(pred.get(qid, {})), gold_row.get("rubric", {}), gold_row.get("spec", {}))
+        item = [d for d in _WRITING_DIMS if checks[d][0]]
+        for d in item:
+            applicable[d] += 1
+            hit[d] += int(checks[d][1])
+        overall += sum(checks[d][1] for d in item) / len(item) if item else 0.0
+    scores = {f"{d}_compliance": (hit[d] / applicable[d] if applicable[d] else 1.0) for d in _WRITING_DIMS}
+    scores["overall_compliance"] = overall / total
+    return scores
+
+
+def dataset4_audit_score(gold_path: Path, pred_path: Path) -> dict[str, float]:
+    """公文审核/纠错评分：违规类型集合的 precision/recall/F1 + 逐项精确匹配 + 合规样本零误报。"""
+    gold = {r["question_id"]: set(r.get("violations", [])) for r in read_jsonl(gold_path)}
+    pred = {r["question_id"]: set(r.get("violations", [])) for r in read_jsonl(pred_path)}
+    total = len(gold)
+    if total == 0:
+        return {}
+    tp = fp = fn = exact = clean_total = clean_ok = 0
+    for qid, gold_set in gold.items():
+        pred_set = pred.get(qid, set())
+        tp += len(gold_set & pred_set)
+        fp += len(pred_set - gold_set)
+        fn += len(gold_set - pred_set)
+        exact += int(gold_set == pred_set)
+        if not gold_set:
+            clean_total += 1
+            clean_ok += int(not pred_set)
+    precision = tp / (tp + fp) if tp + fp else 1.0
+    recall = tp / (tp + fn) if tp + fn else 1.0
+    f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+    return {
+        "violation_precision": precision, "violation_recall": recall, "violation_f1": f1,
+        "exact_match_rate": exact / total,
+        "clean_doc_accuracy": 1.0 if clean_total == 0 else clean_ok / clean_total,
+    }
+
+
+def _rewrite_answer(row: dict) -> str:
+    for key in ("rewrite", "answer", "document", "corrected_document"):
+        if row.get(key):
+            return str(row[key])
+    return ""
+
+
+def dataset4_rewrite_score(gold_path: Path, pred_path: Path) -> dict[str, float]:
+    """审核纠错改写评分：违规清除（独立检测器复检为零）+ 关键事实保留 + 格式合规。
+    金标准（注入前的合规底稿 corrected_document）自评满分。"""
+    from types import SimpleNamespace
+    try:
+        from generate_audit_tasks import detect_violations  # 路径已在文件头部加入
+    except Exception:
+        detect_violations = None
+    gold = {row["question_id"]: row for row in read_jsonl(gold_path)}
+    pred = {row["question_id"]: row for row in read_jsonl(pred_path)}
+    total = len(gold)
+    if total == 0:
+        return {}
+    removed = facts = fmt = overall = 0
+    for qid, gold_row in gold.items():
+        spec = SimpleNamespace(**gold_row.get("spec", {}))
+        text = _rewrite_answer(pred.get(qid, {}))
+        doc_type = getattr(spec, "doc_type", "")
+        agency = getattr(spec, "agency", "")
+        no_viol = bool(text) and detect_violations is not None and doc_type and not detect_violations(text, spec)
+        ok_facts = bool(doc_type) and doc_type in text and (not agency or agency in text)
+        lines = [l for l in text.splitlines() if l.strip()]
+        title_ok = any(doc_type and doc_type in l and "关于" in l and (not agency or agency in l) for l in lines)
+        ok_fmt = title_ok and len(_ORDINAL_RE.findall(text)) >= 2 and bool(_DATE_RE.search(text))
+        removed += int(no_viol)
+        facts += int(ok_facts)
+        fmt += int(ok_fmt)
+        overall += int(no_viol and ok_facts and ok_fmt)
+    return {
+        "violations_removed_rate": removed / total,
+        "facts_preserved_rate": facts / total,
+        "format_valid_rate": fmt / total,
+        "overall_rewrite_compliance": overall / total,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["q", "dataqa"], required=True)
+    parser.add_argument("--dataset", choices=["q", "dataqa", "writing", "audit", "rewrite"], required=True)
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--pred", type=Path, required=True)
     parser.add_argument("--tolerance", type=float, default=0.01)
     args = parser.parse_args()
-    scores = dataset1_score(args.gold, args.pred) if args.dataset == "q" else dataset2_score(args.gold, args.pred, args.tolerance)
+    if args.dataset == "q":
+        scores = dataset1_score(args.gold, args.pred)
+    elif args.dataset == "dataqa":
+        scores = dataset2_score(args.gold, args.pred, args.tolerance)
+    elif args.dataset == "writing":
+        scores = dataset3_writing_score(args.gold, args.pred)
+    elif args.dataset == "audit":
+        scores = dataset4_audit_score(args.gold, args.pred)
+    else:
+        scores = dataset4_rewrite_score(args.gold, args.pred)
     print(json.dumps(scores, ensure_ascii=False, indent=2))
 
 

@@ -9,14 +9,19 @@
 - 《党政机关公文处理工作条例》(2012)：15 种法定公文文种。
 - GB/T 9704—2012《党政机关公文格式》：18 个版头/主体/版记格式要素。
 
-## 两套数据集
+## 四套数据集
 
-1. **CN-GongWen-Q**：纯问题自然语言压力测试，覆盖 11 类问题类型：
+1. **CN-GongWen-Q**：纯问题自然语言压力测试，覆盖 15 类问题类型：
    - `single_doc_type`、`multi_doc_type`、`cross_element_chain`（跨要素链式推理）、
      `temporal_compound`（时效复合）、`conflicting_signals`（文种—行文方向冲突）、
      `boundary_precision`（份号位数/字号格式等精确规则）、`negative_enumeration`（否定枚举）、
      `management_open`、`ambiguous_boundary`、`hallucination_trap`（**18 种不同陷阱**）、
      `spoken_noisy`。
+   - **新增 4 类显式题型**：`doctype_misuse`（文种误用：请示/报告、函/请示、公告/通告、方案等非文种当文种）、
+     `addressing_relation`（行文关系：主送领导个人、越级未抄送、上行文抄送下级、原文转报）、
+     `authority_boundary`（权限边界：部门越权、未会签、内设机构对外行文、代党委政府决定）、
+     `medical_compliance`（**医疗合规辨析**：疗效绝对化、患者隐私、伦理审查、AI 替代医师、医保基金违规；恒为医疗方向、hard）。
+     题量配比经重排，仍保持医疗约 50%、hard ≥40%、easy ≤25%。
 2. **CN-GongWen-DataQA**：基于合成公文语料的数据问答，覆盖 16 类任务：
    - 基线 8：`direct_lookup`、`cross_agency_ranking`、`period_comparison`、`sustained_trend`、
      `composite_element_explanation`、`anomaly_detection`、`priority_ranking`、`briefing`。
@@ -26,6 +31,37 @@
    - **政策领域分类**：`policy_domain_classification`（判别通用政务/医疗卫生，并归入 16 个医疗子领域）。
    - **5 种播报子类型**：`standard_executive`、`risk_focused_targeted`、
      `conflicting_signals_briefing`、`exclusion_briefing`、`leadership_focus`。
+3. **CN-GongWen-Writing**：公文**写作测试 prompt**，按**目标产出 token** 分桶（short ≤300 /
+   medium 300–800 / long 1200–2500），覆盖全部 15 法定文种，蕴含复杂行文框架与硬性行文规则：
+   - **权威依据**（schema `STANDARDS`）：《党政机关公文处理工作条例》+ GB/T 9704—2012（格式）+
+     GB/T 15834—2011（标点）+ GB/T 15835—2011（数字用法）。
+   - 框架维度：标题三要素（机关+事由+文种）、层次序数 `一、（一）1.`、上行文签发人、主送/抄送、
+     附件说明、附注（请示注明联系人电话）、结尾用语、署名与成文日期（阿拉伯数字）。
+   - 行文规则约束：请示一文一事且单一主送、报告不夹带请示、上行文不抄送下级、函为平行文、
+     涉密标份号与密级；并以 18 类陷阱 + 文种典型雷区作为**须规避雷区**的负向约束。
+   - **内容可执行性**：部署性下行文（通知/意见/决定）须写明责任主体、完成时限、报送反馈
+     （依据—目标—任务—责任—时限—保障—反馈），避免“只有口号没有抓手”。
+   - **语言安全**：规避夸大/网络化/绝对化表述（schema `FORBIDDEN_PHRASES`）；**文种辨析**
+     （schema `DOC_TYPE_GUIDE`）为每文种附主要用途、写作要点、典型雷区（参考请示/报告/函辨析表）；
+     另含**十项硬核自查** `SELF_CHECK`。
+   - 生成与复现：`MINIMAX_API_KEY` 就绪时由 LLM **一次 10 条**撰写测试 prompt、否则确定性模板（提交即冻结）；
+     评分 `rubric` 与 `reference_answer`（合规且命中目标 token 区间的参考公文）始终确定性、事实接地，
+     故金标准自评满分、逐字节可复现。打分见 `scorer.py --dataset writing`，**11 个结构化维度**：
+     长度/标题/层次/署名日期/签发人/主送/行文方向/**可执行性/标点/语言安全**/雷区规避。
+   - **医疗卫生题叠加医学合规**（schema `MEDICAL_STANDARDS`/`MEDICAL_FORBIDDEN_PHRASES`/`MEDICAL_SELF_CHECK`）：
+     prompt 追加 2024–2026 医疗法规依据（传染病防治法 2025、IIT 管理办法 2024、医保基金监管实施细则 2026 等）
+     与八条合规线规则（疗效不绝对化、患者隐私去标识化、知情同意、伦理审查、AI 仅作辅助、医保基金合规）；
+     语言安全维度对医疗题额外禁用疗效夸大/广告红线词（治愈、根治、无副作用、疗效领先、全国第一、自动诊断、无需医生审核……）。
+4. **CN-GongWen-Audit**：公文**审核/纠错**任务，对标"审核清单 / 十项硬核自查"。在确定性"正确底稿"
+   （复用 dataset_3 参考公文）上**确定性注入**一个违规子集（约 1/4 为完全合规的对照样本），要求模型
+   找出全部违规。覆盖 **16 类违规**——通用 11 类（标题缺文种、发文字号方括号、字号加"第"、成文日期用汉字、
+   第二层序号加顿号、夸大用语、编造法规条款、请示多头主送、上行文缺签发人、报告夹请示、上行文抄送下级）
+   + **5 类医疗专属**（夸大/保证疗效、泄露患者隐私、科研探索当临床常规、AI 替代医师、医保基金违规；仅注入医疗题）。
+   金标准 = 注入集合，并由**独立检测器**断言"注入即可检出"（金标准诚实）；打分
+   `scorer.py --dataset audit`：违规类型 precision/recall/F1 + 逐项精确匹配 + 合规件零误报。
+   - **纠错改写子任务**（`scorer.py --dataset rewrite`）：要求把含缺陷公文改写为合规公文；金标准为注入前的
+     合规底稿 `corrected_document`（校验器断言其本身零违规），按**违规清除率/关键事实保留率/格式合规率/总体合规**打分。
+     公开切分提供 `prompt`（找错）与 `rewrite_prompt`（改写）两个指令。
 
 ## 医疗卫生政策方向（约占一半）
 
@@ -72,6 +108,8 @@
 gongwen_benchmark/
 ├─ dataset_1_question_only/    # CN-GongWen-Q：public + hidden + taxonomy
 ├─ dataset_2_data_qa/          # CN-GongWen-DataQA：records.csv + questions/answers/...
+├─ dataset_3_writing/          # CN-GongWen-Writing：public prompt + with_rubric(参考公文) + taxonomy
+├─ dataset_4_audit/            # CN-GongWen-Audit：public(待审公文) + with_gold(违规标签) + taxonomy
 ├─ evaluation/                 # scorer.py + 度量/规则/报告模板
 ├─ workflow/                   # 公文办理流转（OA）事件流示例
 ├─ scripts/                    # 模式、生成器、校验器、真实数据导入、LiteLLM
@@ -100,8 +138,11 @@ export MINIMAX_MODEL=MiniMax-M1
 python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard --use-litellm
 ```
 
-LiteLLM 仅改写问题或润色播报文字。文种、行文方向、发文字号、密级、数值、排序、
-合规判定与证据行始终由 Python 从 `records.csv` 确定性计算。
+`--use-litellm` 在事实护栏下改写三处表层文本：**Q 问题措辞**、**DataQA 播报语言**、
+**Writing 测试 prompt**；文种、行文方向、发文字号、密级、数值、排序、合规判定、证据行，
+以及写作 rubric/参考公文与审核金标准，始终由 Python 从 `records.csv` 确定性计算。
+LLM 调用带磁盘缓存与重试，**单条失败自动回退确定性模板**，故冻结流程不中断；提交即冻结这批产物。
+（未配 `MINIMAX_API_KEY`/`OPENAI_API_KEY` 时启用 `--use-litellm` 会提前明确报错。）
 
 ## 经批准的真实/混合数据工作流
 

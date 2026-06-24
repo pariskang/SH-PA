@@ -37,6 +37,7 @@ from benchmark_schema import (
     POLICY_DOMAINS,
     QUERY_TYPES,
     QUESTION_TYPES,
+    STANDARDS,
     TRAP_TYPES,
     doc_type_by_code,
     medical_area_by_name,
@@ -71,12 +72,14 @@ class ProfileSpec:
     days: int
     default_q: int
     default_dataqa: int
+    default_writing: int
+    default_audit: int
 
 
 PROFILES: dict[str, ProfileSpec] = {
-    "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200),
-    "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000),
-    "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000),
+    "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200, default_writing=30, default_audit=30),
+    "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000, default_writing=90, default_audit=90),
+    "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000, default_writing=180, default_audit=180),
 }
 
 
@@ -365,16 +368,20 @@ def write_reference_files(agencies: list[dict[str, Any]]) -> None:
 # Q 数据集（公文写作/理解问题集）
 # --------------------------------------------------------------------------------------
 Q_PROPORTIONS = {
-    "single_doc_type": 0.22, "multi_doc_type": 0.08, "cross_element_chain": 0.10,
-    "temporal_compound": 0.07, "conflicting_signals": 0.07, "boundary_precision": 0.07,
+    "single_doc_type": 0.15, "multi_doc_type": 0.07, "cross_element_chain": 0.09,
+    "temporal_compound": 0.06, "conflicting_signals": 0.07, "boundary_precision": 0.05,
     "negative_enumeration": 0.06, "management_open": 0.05, "ambiguous_boundary": 0.05,
-    "hallucination_trap": 0.12, "spoken_noisy": 0.11,
+    "hallucination_trap": 0.09, "spoken_noisy": 0.09,
+    "doctype_misuse": 0.04, "addressing_relation": 0.04, "authority_boundary": 0.04,
+    "medical_compliance": 0.05,
 }
 Q_DIFFICULTY = {
     "single_doc_type": "easy", "spoken_noisy": "medium", "multi_doc_type": "medium",
     "management_open": "medium", "ambiguous_boundary": "hard", "cross_element_chain": "hard",
     "temporal_compound": "hard", "conflicting_signals": "hard", "boundary_precision": "hard",
     "negative_enumeration": "hard", "hallucination_trap": "hard",
+    "doctype_misuse": "medium", "addressing_relation": "hard", "authority_boundary": "hard",
+    "medical_compliance": "hard",
 }
 
 SINGLE_SCENARIOS = (
@@ -560,11 +567,61 @@ TRAP_TEMPLATES_MED = {
 }
 
 
+# --- 新增显式题型：文种误用 / 行文关系 / 权限边界（含医疗变体）---
+MISUSE = (
+    "请示与报告混用：某机关在报告结尾向上级请求批准事项，错在哪里？应如何分别处理？",
+    "函与请示混用：不相隶属机关之间请求批准事项，却因对方级别较高写成“请示”，是否恰当？应改用何种文种？",
+    "公告与通告混用：在一定范围内公布应当遵守的事项却用了“公告”，应如何纠正？",
+    "把“实施方案、工作计划、工作总结、请款申请”当作正式公文文种发文，是否规范？它们应如何归类？",
+)
+MISUSE_MED = (
+    "卫生健康部门在医改进展报告结尾请求批准专项经费（报告夹请示），错在哪里？应如何分别处理？",
+    "医保局与卫健委不相隶属，却因级别相当就价格事项写“请示”，是否恰当？应改用何种文种？",
+    "向社会公布应遵守的就诊须知却用了“公告”，应改用“通告”还是其他文种？为什么？",
+    "把“医改实施方案、年度工作总结、用款申请”当作法定公文文种下发，是否规范？应如何归类？",
+)
+ADDRESSING = (
+    "某机关将请示直接主送上级机关负责人个人，而非主送上级机关，这种行文是否规范？应如何纠正？",
+    "因情况紧急确需越级行文，却未抄送被越过的机关，存在什么问题？应如何补救？",
+    "上行文同时抄送了下级机关，这种做法是否规范？为什么上行文一般不抄送下级？",
+    "下级机关将请示原文转报上级而未提出倾向性意见，这种“原文转报”错在哪里？应如何改进？",
+)
+ADDRESSING_MED = (
+    "某卫健委将关于专项经费的请示直接主送市政府主要领导个人、未主送市政府机关，是否规范？应如何纠正？",
+    "疾控机构因疫情紧急越级向省级行文，却未抄送被越过的市级机关，应如何补救？",
+    "某医保上行报告同时抄送了下级定点医疗机构，这种做法是否规范？为什么？",
+)
+AUTHORITY = (
+    "某市直部门未经政府授权，径自以本部门名义向各县（市、区）人民政府下达指令性要求，这种越权行文应如何规范？",
+    "一项政策涉及多个部门职责，起草部门未与相关部门会签、未协商一致即向下行文，应如何纠正并完善协商一致机制？",
+    "除办公厅（室）外，机关内设机构一般不得对外正式行文，应如何把握内设机构的行文权限？",
+    "部门拟代本级党委、政府作出决定，这是否超越职权？应如何把握部门行文的权限边界？",
+)
+AUTHORITY_MED = (
+    "卫生健康部门拟就涉及医保、药监职责的事项行文，未与医保局、药监局会签即下发，应如何规范跨部门会签与协商一致？",
+    "某卫健委内设的医政医管处拟以本处名义对外印发文件，是否符合行文权限规定？应如何处理？",
+    "卫生部门拟代本级政府作出医疗机构设置的决定，是否超越职权？应如何把握权限边界？",
+)
+# 医疗合规辨析题（恒为医疗方向；对标疗效/隐私/伦理/AI/医保/公卫等合规线）
+MED_COMPLIANCE = (
+    "某科室拟在医院公众号宣传“××疗法确保治愈、无副作用、有效率100%”，存在哪些医疗广告与疗效表述合规问题？应如何稳妥修改？",
+    "一份病例通报写明“患者张某，男，47岁，××小区人”并附完整病历截图，可能违反哪些患者隐私与敏感个人信息保护要求？应如何处理？",
+    "某临床研究使用患者既往诊疗数据开展，但未经伦理审查即实施，存在什么问题？应如何依《涉及人的生命科学和医学研究伦理审查办法》补正？",
+    "医院信息科文件称“AI 系统自动诊断并直接生成处方、无需医生审核”，这种定位错在哪里？应如何规范表述其辅助决策属性？",
+    "某医保整改报告把“分解住院、串换项目”轻描淡写为“编码误差”，存在什么医保基金监管风险？应如何如实表述与整改？",
+    "一份院感情况说明把“疑似聚集性感染”直接写成“已确诊暴发”并拟由科室对外发布，存在哪些公共卫生报告权限与表述问题？",
+    "科研项目申报书写“本项目已证明××技术可广泛替代传统治疗”，违反医疗技术临床应用与科研诚信的哪些要求？应如何稳妥表述？",
+    "对外健康科普稿将具体药品、购买链接与医生“保证治好”的承诺绑定，可能触及医疗广告与互联网广告的哪些红线？",
+)
+
+
 def q_is_medical(qtype: str, i: int) -> bool:
-    """边界精度为纯格式国标题，保持通用；其余约 55% 走医疗方向，使整体医疗占比≈50%。"""
+    """边界精度为纯格式国标题，保持通用；医疗合规题恒为医疗；其余约 52% 走医疗方向，使整体医疗占比≈50%。"""
     if qtype == "boundary_precision":
         return False
-    return hashed("qmed", qtype, i) % 100 < 55
+    if qtype == "medical_compliance":
+        return True
+    return hashed("qmed", qtype, i) % 100 < 52
 
 
 def _counts(proportions: dict[str, float], total: int, balancer: str) -> dict[str, int]:
@@ -647,6 +704,23 @@ def build_q_dataset(agencies: list[dict[str, Any]], total: int, use_llm: bool, c
         it.update(question=q, expected_query_type="DOC_TYPE_SELECTION",
                   requires_clarification=(i % 3 == 0), expected_slots={"intent": "口语化文种识别"})
         items.append(it)
+    for i in range(counts["doctype_misuse"]):
+        it, q = variant("doctype_misuse", i, MISUSE_MED, MISUSE)
+        it.update(question=q, expected_query_type="DOC_TYPE_SELECTION", expected_slots={"intent": "文种误用辨析"})
+        items.append(it)
+    for i in range(counts["addressing_relation"]):
+        it, q = variant("addressing_relation", i, ADDRESSING_MED, ADDRESSING)
+        it.update(question=q, expected_query_type="DIRECTION_JUDGMENT", expected_slots={"intent": "行文关系规范"})
+        items.append(it)
+    for i in range(counts["authority_boundary"]):
+        it, q = variant("authority_boundary", i, AUTHORITY_MED, AUTHORITY)
+        it.update(question=q, expected_query_type="POLICY_EXPLANATION", expected_slots={"intent": "行文权限边界"})
+        items.append(it)
+    for i in range(counts["medical_compliance"]):
+        it = base("medical_compliance", med=True)  # 医疗合规题恒为医疗方向
+        it.update(question=MED_COMPLIANCE[i % len(MED_COMPLIANCE)],
+                  expected_query_type="POLICY_EXPLANATION", expected_slots={"intent": "医疗合规辨析"})
+        items.append(it)
 
     # 赋予 question_id，应用尾缀变体（控制 padding 占比 < 40%）
     public, hidden = [], []
@@ -671,7 +745,7 @@ def build_q_dataset(agencies: list[dict[str, Any]], total: int, use_llm: bool, c
 def build_taxonomy() -> dict[str, Any]:
     return {
         "benchmark": "CN-GongWen-Q",
-        "standard": ["《党政机关公文处理工作条例》(2012)", "GB/T 9704—2012《党政机关公文格式》"],
+        "standard": list(STANDARDS),
         "doc_types": [
             {"code": s.code, "name": s.name, "direction": s.direction, "category": s.category,
              "needs_signatory": s.needs_signatory, "applicability": s.applicability}
@@ -1098,6 +1172,8 @@ def main() -> None:
     cfg = LiteLLMConfig() if args.use_litellm else None
     if args.use_litellm and not litellm_available():
         raise SystemExit("litellm 未安装：pip install '.[llm]'")
+    if args.use_litellm and (cfg is None or not cfg.api_key):
+        raise SystemExit("启用 --use-litellm 需先配置 MINIMAX_API_KEY（或 OPENAI_API_KEY）")
 
     agencies = agency_metadata(profile.agencies)
     if args.records_input:
@@ -1131,6 +1207,15 @@ def main() -> None:
 
     build_workflow(corpus)
 
+    # CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt。
+    # 评分真相（rubric/framework/reference）确定性生成；prompt 文本在 --use-litellm 且有 key 时由 LLM 一次 10 条撰写。
+    from generate_writing_prompts import write_writing_dataset
+    writing = write_writing_dataset(profile.default_writing, args.use_litellm, cfg)
+
+    # CN-GongWen-Audit（dataset_4）：公文审核/纠错（确定性注入雷区→找出违规），完全确定性。
+    from generate_audit_tasks import write_audit_dataset
+    audit = write_audit_dataset(profile.default_audit)
+
     if args.export_parquet:
         export_parquet(records, args.export_parquet)
 
@@ -1138,6 +1223,8 @@ def main() -> None:
         "profile": args.profile, "agencies": len(agencies), "records": len(records),
         "q_questions": len(public), "dataqa_questions": len(questions),
         "anomaly_labels": len(anomaly_labels), "briefing_tasks": len(briefing_tasks),
+        "writing_prompts": writing["writing_count"], "writing_buckets": writing["writing_buckets"],
+        "audit_tasks": audit["audit_count"], "audit_flawed": audit["audit_flawed"],
         "used_litellm": bool(args.use_litellm),
     }, ensure_ascii=False, indent=2))
 

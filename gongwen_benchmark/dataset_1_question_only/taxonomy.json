@@ -2,7 +2,9 @@
   "benchmark": "CN-GongWen-Q",
   "standard": [
     "《党政机关公文处理工作条例》(2012)",
-    "GB/T 9704—2012《党政机关公文格式》"
+    "GB/T 9704—2012《党政机关公文格式》",
+    "GB/T 15834—2011《标点符号用法》",
+    "GB/T 15835—2011《出版物上数字用法》"
   ],
   "doc_types": [
     {
@@ -265,7 +267,11 @@
     "management_open",
     "ambiguous_boundary",
     "hallucination_trap",
-    "spoken_noisy"
+    "spoken_noisy",
+    "doctype_misuse",
+    "addressing_relation",
+    "authority_boundary",
+    "medical_compliance"
   ],
   "query_types": [
     "DOC_TYPE_SELECTION",

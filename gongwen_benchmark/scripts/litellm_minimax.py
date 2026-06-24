@@ -85,13 +85,19 @@ def fact_guard(source: str, candidate: str) -> bool:
 
 def rewrite_question(template_question: str, context: dict[str, Any], config: LiteLLMConfig | None = None) -> str:
     payload = {"template_question": template_question, "context": context, "strict_constraints": ["保持文种、行文方向、发文字号、机关代字、日期、密级、紧急程度和安全意图不变", "不得新增数值、法规、机关、个人或密级信息", "输出 {\"question\": \"...\"}"]}
-    result = completion_json([{"role": "system", "content": "你是党政机关公文写作与办理评测问题改写助手。"}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}], config)
+    try:  # 单条改写失败（网络/服务/JSON/无密钥）即回退确定性模板，保证冻结流程不中断
+        result = completion_json([{"role": "system", "content": "你是党政机关公文写作与办理评测问题改写助手。"}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}], config)
+    except Exception:
+        return template_question
     candidate = str(result.get("question", "")).strip()
     return candidate if fact_guard(template_question, candidate) else template_question
 
 
 def polish_briefing(template_answer: str, evidence: list[dict[str, Any]], config: LiteLLMConfig | None = None) -> str:
     payload = {"template_answer": template_answer, "evidence": evidence, "strict_constraints": ["只能使用 evidence 中的事实", "不得增加文种、机关、字号、日期、密级或整改结论", "输出 {\"answer\": \"...\"}"]}
-    result = completion_json([{"role": "system", "content": "你是审慎的公文办理播报润色助手。"}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}], config)
+    try:  # 单条润色失败即回退确定性模板，保证冻结流程不中断
+        result = completion_json([{"role": "system", "content": "你是审慎的公文办理播报润色助手。"}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}], config)
+    except Exception:
+        return template_answer
     candidate = str(result.get("answer", "")).strip()
     return candidate if fact_guard(template_answer, candidate) else template_answer
