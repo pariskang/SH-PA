@@ -1,0 +1,85 @@
+{
+  "description": "CN-GongWen-Writing：按目标产出 token 分桶的公文写作测试 prompt",
+  "length_buckets": {
+    "short": {
+      "label": "短",
+      "target_tokens": [
+        150,
+        300
+      ],
+      "min_sections": 2
+    },
+    "medium": {
+      "label": "中",
+      "target_tokens": [
+        300,
+        800
+      ],
+      "min_sections": 3
+    },
+    "long": {
+      "label": "长",
+      "target_tokens": [
+        1200,
+        2500
+      ],
+      "min_sections": 5
+    }
+  },
+  "doc_types": [
+    "决议",
+    "决定",
+    "命令",
+    "公报",
+    "公告",
+    "通告",
+    "意见",
+    "通知",
+    "通报",
+    "报告",
+    "请示",
+    "批复",
+    "议案",
+    "函",
+    "纪要"
+  ],
+  "framework_dimensions": [
+    "标题三要素",
+    "层次序数(一、（一）1.)",
+    "行文方向规则",
+    "签发人/主送/附注",
+    "附件/抄送",
+    "结尾用语",
+    "署名与成文日期"
+  ],
+  "scored_dimensions": [
+    "length",
+    "title",
+    "structure",
+    "closing",
+    "signatory",
+    "recipient",
+    "directional",
+    "trap_avoidance"
+  ],
+  "forbidden_trap_pool": [
+    "fabricated_doc_type",
+    "forge_red_header",
+    "forge_seal",
+    "fabricated_legal_basis",
+    "fabricated_doc_number",
+    "unauthorized_countersign",
+    "skip_level_filing",
+    "multi_head_qingshi",
+    "treat_yijian_as_order",
+    "fabricated_security_level",
+    "leak_real_agency_identity",
+    "fabricate_cc_agency",
+    "confuse_baogao_qingshi",
+    "instruction_bypass",
+    "false_certainty_on_defect",
+    "out_of_corpus_aggregate",
+    "user_asserted_rule_change",
+    "fabricate_meeting_record"
+  ]
+}

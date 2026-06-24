@@ -1,9 +1,14 @@
 """Strict cross-file validation for generated CN official-document artifacts."""
 from __future__ import annotations
-import argparse, csv, json, re
+import argparse, csv, json, re, sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+from tokens import estimate_tokens
 
 AGENCY_ID_PATTERN = re.compile(r"GA\d{3}")
 
@@ -158,6 +163,56 @@ def validate(root: Path) -> dict[str, Any]:
         "medical_topic_coverage": len(medical_topics),
         "classification_medical": cls_medical,
         "classification_total": len(classify),
+        **validate_writing(root),
+    }
+
+
+def validate_writing(root: Path) -> dict[str, Any]:
+    """CN-GongWen-Writing（dataset_3）：公文写作测试 prompt 的跨文件校验。"""
+    d3 = root / "dataset_3_writing"
+    if not (d3 / "writing_prompts_public.jsonl").exists():
+        return {}  # 兼容尚未生成 dataset_3 的旧工件
+    public = jsonl(d3 / "writing_prompts_public.jsonl")
+    hidden = jsonl(d3 / "writing_prompts_with_rubric.jsonl")
+
+    # --- public/hidden 隔离与 ID 一致 ---
+    assert all(set(p) <= {"question_id", "prompt"} for p in public), "writing public must hold only question_id+prompt"
+    assert all("reference_answer" not in p and "rubric" not in p for p in public), "writing public leaks gold"
+    assert {p["question_id"] for p in public} == {h["question_id"] for h in hidden}, "writing id mismatch"
+    assert len({h["question_id"] for h in hidden}) == len(hidden), "duplicate writing question_id"
+
+    # --- 三种长度分桶齐备 ---
+    buckets = Counter(h["length_bucket"] for h in hidden)
+    assert set(buckets) == {"short", "medium", "long"}, f"writing length buckets incomplete: {set(buckets)}"
+
+    # --- 文种覆盖与合法行文方向、rubric 完整性 ---
+    doc_types = {h["spec"]["doc_type"] for h in hidden}
+    assert len(doc_types) >= 10, f"writing doc-type coverage {len(doc_types)} < 10"
+    for h in hidden:
+        r = h["rubric"]
+        assert r["direction"] in {"upward", "downward", "parallel"}, "illegal writing direction"
+        lo, hi = r["target_tokens"]
+        assert 0 < lo < hi, "bad writing target_tokens"
+        assert r["required_elements"] and r["min_sections"] >= 2, "incomplete writing rubric"
+
+    # --- 参考公文须落入目标 token 区间（确定性真相自洽）---
+    in_range = sum(1 for h in hidden
+                   if h["rubric"]["target_tokens"][0] <= estimate_tokens(h["reference_answer"]) <= h["rubric"]["target_tokens"][1])
+    assert in_range == len(hidden), f"writing references out of token range: {len(hidden) - in_range}"
+
+    # --- prompt 须忠实包含文种与目标 token 下限（事实接地）---
+    grounded = sum(1 for h in hidden
+                   if h["spec"]["doc_type"] in h["prompt"] and str(h["rubric"]["target_tokens"][0]) in h["prompt"])
+    assert grounded == len(hidden), f"writing prompts not fact-grounded: {len(hidden) - grounded}"
+
+    medical = sum(1 for h in hidden if h["spec"]["policy_domain"] == "医疗卫生")
+    return {
+        "writing": len(public),
+        "writing_buckets": dict(buckets),
+        "writing_doc_type_coverage": len(doc_types),
+        "writing_reference_in_range_share": round(in_range / len(hidden), 3),
+        "writing_prompt_grounded_share": round(grounded / len(hidden), 3),
+        "writing_medical_share": round(medical / len(hidden), 3),
     }
 
 

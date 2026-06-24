@@ -9,7 +9,7 @@
 - 《党政机关公文处理工作条例》(2012)：15 种法定公文文种。
 - GB/T 9704—2012《党政机关公文格式》：18 个版头/主体/版记格式要素。
 
-## 两套数据集
+## 三套数据集
 
 1. **CN-GongWen-Q**：纯问题自然语言压力测试，覆盖 11 类问题类型：
    - `single_doc_type`、`multi_doc_type`、`cross_element_chain`（跨要素链式推理）、
@@ -26,6 +26,16 @@
    - **政策领域分类**：`policy_domain_classification`（判别通用政务/医疗卫生，并归入 16 个医疗子领域）。
    - **5 种播报子类型**：`standard_executive`、`risk_focused_targeted`、
      `conflicting_signals_briefing`、`exclusion_briefing`、`leadership_focus`。
+3. **CN-GongWen-Writing**：公文**写作测试 prompt**，按**目标产出 token** 分桶（short ≤300 /
+   medium 300–800 / long 1200–2500），覆盖全部 15 法定文种，蕴含复杂行文框架与硬性行文规则：
+   - 框架维度：标题三要素（机关+事由+文种）、层次序数 `一、（一）1.`、上行文签发人、主送/抄送、
+     附件说明、附注（请示注明联系人电话）、结尾用语、署名与成文日期（阿拉伯数字）。
+   - 行文规则约束：请示一文一事且单一主送、报告不夹带请示、上行文不抄送下级、函为平行文、
+     涉密标份号与密级；并以 18 类陷阱作为**须规避雷区**的负向约束。
+   - 生成与复现：`MINIMAX_API_KEY` 就绪时由 LLM **一次 10 条**撰写测试 prompt、否则确定性模板（提交即冻结）；
+     评分 `rubric` 与 `reference_answer`（合规且命中目标 token 区间的参考公文）始终确定性、事实接地，
+     故金标准自评满分、逐字节可复现。打分见 `scorer.py --dataset writing`（标题/层次/署名/签发人/主送/
+     行文方向/雷区规避/目标 token 长度 8 个结构化维度）。
 
 ## 医疗卫生政策方向（约占一半）
 
@@ -72,6 +82,7 @@
 gongwen_benchmark/
 ├─ dataset_1_question_only/    # CN-GongWen-Q：public + hidden + taxonomy
 ├─ dataset_2_data_qa/          # CN-GongWen-DataQA：records.csv + questions/answers/...
+├─ dataset_3_writing/          # CN-GongWen-Writing：public prompt + with_rubric(参考公文) + taxonomy
 ├─ evaluation/                 # scorer.py + 度量/规则/报告模板
 ├─ workflow/                   # 公文办理流转（OA）事件流示例
 ├─ scripts/                    # 模式、生成器、校验器、真实数据导入、LiteLLM

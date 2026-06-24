@@ -71,12 +71,13 @@ class ProfileSpec:
     days: int
     default_q: int
     default_dataqa: int
+    default_writing: int
 
 
 PROFILES: dict[str, ProfileSpec] = {
-    "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200),
-    "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000),
-    "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000),
+    "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200, default_writing=30),
+    "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000, default_writing=90),
+    "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000, default_writing=180),
 }
 
 
@@ -1131,6 +1132,11 @@ def main() -> None:
 
     build_workflow(corpus)
 
+    # CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt。
+    # 评分真相（rubric/framework/reference）确定性生成；prompt 文本在 --use-litellm 且有 key 时由 LLM 一次 10 条撰写。
+    from generate_writing_prompts import write_writing_dataset
+    writing = write_writing_dataset(profile.default_writing, args.use_litellm, cfg)
+
     if args.export_parquet:
         export_parquet(records, args.export_parquet)
 
@@ -1138,6 +1144,7 @@ def main() -> None:
         "profile": args.profile, "agencies": len(agencies), "records": len(records),
         "q_questions": len(public), "dataqa_questions": len(questions),
         "anomaly_labels": len(anomaly_labels), "briefing_tasks": len(briefing_tasks),
+        "writing_prompts": writing["writing_count"], "writing_buckets": writing["writing_buckets"],
         "used_litellm": bool(args.use_litellm),
     }, ensure_ascii=False, indent=2))
 

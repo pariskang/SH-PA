@@ -16,8 +16,23 @@ import argparse
 import json
 import math
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+try:
+    from tokens import estimate_tokens  # 与生成/校验共用同一 token 估算口径
+except Exception:  # 评测方仅取走 scorer.py 时的等价回退（公式与 tokens.py 一致）
+    _CJK_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿　-〿＀-￯]")
+
+    def estimate_tokens(text: str) -> int:
+        if not text:
+            return 0
+        cjk = len(_CJK_RE.findall(text))
+        return cjk + (len(text) - cjk + 3) // 4
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -192,14 +207,77 @@ def dataset2_score(answer_path: Path, pred_path: Path, tolerance: float = 0.01) 
     }
 
 
+_ORDINAL_RE = re.compile(r"[一二三四五六七八九十]、")
+_DATE_RE = re.compile(r"20\d{2}年\d{1,2}月\d{1,2}日")
+_ARTICLE_RE = re.compile(r"第\d+条")
+_SECRET_WORDS = ("绝密", "机密", "秘密")
+_WRITING_DIMS = ("length", "title", "structure", "closing", "signatory", "recipient", "directional", "trap_avoidance")
+
+
+def _writing_checks(answer: str, rubric: dict, spec: dict) -> dict[str, tuple[bool, bool]]:
+    """维度 -> (是否适用, 是否通过)；仅对适用维度计分。金标准提供 rubric/spec，预测提供公文文本。"""
+    lo, hi = rubric.get("target_tokens", (0, 10 ** 9))
+    doc_type = rubric.get("doc_type_name") or spec.get("doc_type", "")
+    agency = spec.get("agency", "")
+    recipient = spec.get("recipient", "")
+    secret = spec.get("security", "公开") in _SECRET_WORDS
+    lines = [ln for ln in answer.splitlines() if ln.strip()]
+    recipient_line = next((ln for ln in lines if ln.strip().endswith("：")), "")
+    return {
+        "length": (True, lo <= estimate_tokens(answer) <= hi),
+        "title": (True, any(doc_type and doc_type in ln and "关于" in ln and (not agency or agency in ln) for ln in lines)),
+        "structure": (True, len(_ORDINAL_RE.findall(answer)) >= rubric.get("min_sections", 1)),
+        "closing": (True, (not agency or agency in answer) and bool(_DATE_RE.search(answer))),
+        "signatory": (bool(rubric.get("needs_signatory")), "签发人" in answer),
+        "recipient": (bool(recipient), recipient in answer),
+        "directional": (doc_type == "请示", "、" not in recipient_line and "各" not in recipient_line),
+        "trap_avoidance": (True, not _ARTICLE_RE.search(answer) and (secret or all(w not in answer for w in _SECRET_WORDS))),
+    }
+
+
+def _writing_answer(row: dict) -> str:
+    for key in ("answer", "document", "answer_text", "reference_answer"):
+        if row.get(key):
+            return str(row[key])
+    return ""
+
+
+def dataset3_writing_score(rubric_path: Path, pred_path: Path) -> dict[str, float]:
+    """公文写作测试 prompt 的确定性结构化评分：标题三要素 / 层次 / 署名日期 / 签发人 / 主送 /
+    行文方向 / 雷区规避 / 目标 token 长度。金标准自评应为满分。"""
+    gold = {row["question_id"]: row for row in read_jsonl(rubric_path)}
+    pred = {row["question_id"]: row for row in read_jsonl(pred_path)}
+    total = len(gold)
+    if total == 0:
+        return {}
+    hit = {d: 0 for d in _WRITING_DIMS}
+    applicable = {d: 0 for d in _WRITING_DIMS}
+    overall = 0.0
+    for qid, gold_row in gold.items():
+        checks = _writing_checks(_writing_answer(pred.get(qid, {})), gold_row.get("rubric", {}), gold_row.get("spec", {}))
+        item = [d for d in _WRITING_DIMS if checks[d][0]]
+        for d in item:
+            applicable[d] += 1
+            hit[d] += int(checks[d][1])
+        overall += sum(checks[d][1] for d in item) / len(item) if item else 0.0
+    scores = {f"{d}_compliance": (hit[d] / applicable[d] if applicable[d] else 1.0) for d in _WRITING_DIMS}
+    scores["overall_compliance"] = overall / total
+    return scores
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["q", "dataqa"], required=True)
+    parser.add_argument("--dataset", choices=["q", "dataqa", "writing"], required=True)
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--pred", type=Path, required=True)
     parser.add_argument("--tolerance", type=float, default=0.01)
     args = parser.parse_args()
-    scores = dataset1_score(args.gold, args.pred) if args.dataset == "q" else dataset2_score(args.gold, args.pred, args.tolerance)
+    if args.dataset == "q":
+        scores = dataset1_score(args.gold, args.pred)
+    elif args.dataset == "dataqa":
+        scores = dataset2_score(args.gold, args.pred, args.tolerance)
+    else:
+        scores = dataset3_writing_score(args.gold, args.pred)
     print(json.dumps(scores, ensure_ascii=False, indent=2))
 
 

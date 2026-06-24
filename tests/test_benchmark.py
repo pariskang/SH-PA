@@ -5,7 +5,9 @@ import pytest
 from gongwen_benchmark.scripts.data_sources import ingest_csv
 from gongwen_benchmark.scripts.litellm_minimax import fact_guard
 from gongwen_benchmark.scripts.validate_artifacts import validate
-from gongwen_benchmark.evaluation.scorer import dataset1_score, dataset2_score
+from gongwen_benchmark.evaluation.scorer import dataset1_score, dataset2_score, dataset3_writing_score
+from gongwen_benchmark.scripts.generate_writing_prompts import build_writing_specs, LENGTH_BUCKETS
+from gongwen_benchmark.scripts.tokens import estimate_tokens
 
 ROOT = Path(__file__).resolve().parents[1] / "gongwen_benchmark"
 
@@ -121,3 +123,55 @@ def test_scorer_is_perfect_on_gold():
 def test_repository_does_not_commit_binary_dataset_artifacts():
     assert not (ROOT / "element_dictionary.xlsx").exists()
     assert not (ROOT / "dataset_2_data_qa/records.parquet").exists()
+
+
+# --- CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt ---
+def test_writing_dataset_buckets_and_coverage():
+    report = validate(ROOT)
+    assert report["writing"] >= 90
+    assert set(report["writing_buckets"]) == {"short", "medium", "long"}
+    assert len(set(report["writing_buckets"].values())) == 1  # standard 档三桶均衡
+    assert report["writing_doc_type_coverage"] == 15           # 覆盖全部 15 法定文种
+    assert report["writing_reference_in_range_share"] == 1.0   # 参考公文全部命中目标 token 区间
+    assert report["writing_prompt_grounded_share"] == 1.0      # 测试 prompt 事实接地
+    assert 0.45 <= report["writing_medical_share"] <= 0.55     # 约一半医疗政策方向
+
+
+def test_writing_scorer_is_perfect_on_reference():
+    path = ROOT / "dataset_3_writing/writing_prompts_with_rubric.jsonl"
+    scores = dataset3_writing_score(path, path)
+    assert scores["overall_compliance"] == 1.0
+    for dim in ("length", "title", "structure", "closing", "signatory", "recipient", "directional", "trap_avoidance"):
+        assert scores[f"{dim}_compliance"] == 1.0
+
+
+def test_writing_public_split_has_no_gold():
+    row = json.loads((ROOT / "dataset_3_writing/writing_prompts_public.jsonl").open(encoding="utf-8").readline())
+    assert set(row) <= {"question_id", "prompt"}
+    assert "reference_answer" not in row and "rubric" not in row
+
+
+def test_writing_specs_obey_xingwen_rules():
+    """生成的写作规格须遵循行文方向与请示/函/上行文等硬规则。"""
+    from gongwen_benchmark.scripts.benchmark_schema import doc_type_by_name
+    for spec in build_writing_specs(90):
+        legal = doc_type_by_name(spec.doc_type)
+        assert spec.direction in {"upward", "downward", "parallel"}
+        if legal.direction != "flexible":
+            assert spec.direction == legal.direction          # 非灵活文种须与法定方向一致
+        if spec.doc_type == "请示":                            # 请示：单一主送、须签发人
+            assert spec.single_recipient and spec.needs_signatory
+            assert "各" not in spec.recipient and "、" not in spec.recipient
+        if spec.direction == "upward":                         # 上行文不抄送下级
+            assert not spec.has_cc
+        if spec.doc_type == "函":                              # 函为平行文
+            assert spec.direction == "parallel"
+
+
+def test_token_buckets_ordered_and_estimator_counts_cjk():
+    assert estimate_tokens("") == 0
+    assert estimate_tokens("通知") == 2                         # CJK 每字计 1
+    short_hi = LENGTH_BUCKETS["short"]["target_tokens"][1]
+    medium_lo, medium_hi = LENGTH_BUCKETS["medium"]["target_tokens"]
+    long_lo = LENGTH_BUCKETS["long"]["target_tokens"][0]
+    assert short_hi <= medium_lo and medium_hi <= long_lo      # 短≤中≤长，区间不交叠
