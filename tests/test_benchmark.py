@@ -6,7 +6,7 @@ from gongwen_benchmark.scripts.data_sources import ingest_csv
 from gongwen_benchmark.scripts.litellm_minimax import fact_guard
 from gongwen_benchmark.scripts.validate_artifacts import validate
 from gongwen_benchmark.evaluation.scorer import (
-    dataset1_score, dataset2_score, dataset3_writing_score, dataset4_audit_score,
+    dataset1_score, dataset2_score, dataset3_writing_score, dataset4_audit_score, dataset4_rewrite_score,
 )
 from gongwen_benchmark.scripts.generate_writing_prompts import build_writing_specs, LENGTH_BUCKETS
 from gongwen_benchmark.scripts.tokens import estimate_tokens
@@ -237,7 +237,8 @@ def test_audit_scorer_perfect_on_gold():
 
 def test_audit_public_split_has_no_gold():
     row = json.loads((ROOT / "dataset_4_audit/audit_tasks_public.jsonl").open(encoding="utf-8").readline())
-    assert set(row) <= {"question_id", "prompt"} and "violations" not in row
+    assert set(row) <= {"question_id", "prompt", "rewrite_prompt"}
+    assert "violations" not in row and "corrected_document" not in row
 
 
 def test_audit_scorer_discriminates(tmp_path):
@@ -253,6 +254,26 @@ def test_audit_scorer_discriminates(tmp_path):
     assert s["violation_f1"] < 1.0
     assert s["exact_match_rate"] == 0.0
     assert s["clean_doc_accuracy"] == 0.0   # 误报合规件
+
+
+def test_audit_rewrite_scorer_perfect_on_gold():
+    path = ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl"
+    s = dataset4_rewrite_score(path, path)   # 金标准=合规底稿 corrected_document
+    assert s["violations_removed_rate"] == 1.0 and s["facts_preserved_rate"] == 1.0
+    assert s["format_valid_rate"] == 1.0 and s["overall_rewrite_compliance"] == 1.0
+
+
+def test_audit_rewrite_scorer_discriminates(tmp_path):
+    """把含缺陷原文原样当“改写”提交，违规未清除 → 改写分应为 0。"""
+    hidden = [json.loads(l) for l in (ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl").open(encoding="utf-8")]
+    flawed_item = next(h for h in hidden if not h["is_clean"])
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(json.dumps(flawed_item, ensure_ascii=False) + "\n", encoding="utf-8")
+    pred = tmp_path / "pred.jsonl"
+    pred.write_text(json.dumps({"question_id": flawed_item["question_id"],
+                                "rewrite": flawed_item["flawed_document"]}, ensure_ascii=False) + "\n", encoding="utf-8")
+    s = dataset4_rewrite_score(gold, pred)
+    assert s["violations_removed_rate"] == 0.0 and s["overall_rewrite_compliance"] == 0.0
 
 
 def test_token_buckets_ordered_and_estimator_counts_cjk():

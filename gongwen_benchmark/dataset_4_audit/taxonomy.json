@@ -66,11 +66,17 @@
       "desc": "医保基金违规风险表述（分解住院、串换项目、诱导住院等）"
     }
   ],
-  "scored_metrics": [
+  "audit_metrics": [
     "violation_precision",
     "violation_recall",
     "violation_f1",
     "exact_match_rate",
     "clean_doc_accuracy"
+  ],
+  "rewrite_metrics": [
+    "violations_removed_rate",
+    "facts_preserved_rate",
+    "format_valid_rate",
+    "overall_rewrite_compliance"
   ]
 }

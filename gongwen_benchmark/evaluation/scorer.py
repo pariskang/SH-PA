@@ -306,9 +306,52 @@ def dataset4_audit_score(gold_path: Path, pred_path: Path) -> dict[str, float]:
     }
 
 
+def _rewrite_answer(row: dict) -> str:
+    for key in ("rewrite", "answer", "document", "corrected_document"):
+        if row.get(key):
+            return str(row[key])
+    return ""
+
+
+def dataset4_rewrite_score(gold_path: Path, pred_path: Path) -> dict[str, float]:
+    """审核纠错改写评分：违规清除（独立检测器复检为零）+ 关键事实保留 + 格式合规。
+    金标准（注入前的合规底稿 corrected_document）自评满分。"""
+    from types import SimpleNamespace
+    try:
+        from generate_audit_tasks import detect_violations  # 路径已在文件头部加入
+    except Exception:
+        detect_violations = None
+    gold = {row["question_id"]: row for row in read_jsonl(gold_path)}
+    pred = {row["question_id"]: row for row in read_jsonl(pred_path)}
+    total = len(gold)
+    if total == 0:
+        return {}
+    removed = facts = fmt = overall = 0
+    for qid, gold_row in gold.items():
+        spec = SimpleNamespace(**gold_row.get("spec", {}))
+        text = _rewrite_answer(pred.get(qid, {}))
+        doc_type = getattr(spec, "doc_type", "")
+        agency = getattr(spec, "agency", "")
+        no_viol = bool(text) and detect_violations is not None and doc_type and not detect_violations(text, spec)
+        ok_facts = bool(doc_type) and doc_type in text and (not agency or agency in text)
+        lines = [l for l in text.splitlines() if l.strip()]
+        title_ok = any(doc_type and doc_type in l and "关于" in l and (not agency or agency in l) for l in lines)
+        ok_fmt = title_ok and len(_ORDINAL_RE.findall(text)) >= 2 and bool(_DATE_RE.search(text))
+        removed += int(no_viol)
+        facts += int(ok_facts)
+        fmt += int(ok_fmt)
+        overall += int(no_viol and ok_facts and ok_fmt)
+    return {
+        "violations_removed_rate": removed / total,
+        "facts_preserved_rate": facts / total,
+        "format_valid_rate": fmt / total,
+        "overall_rewrite_compliance": overall / total,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["q", "dataqa", "writing", "audit"], required=True)
+    parser.add_argument("--dataset", choices=["q", "dataqa", "writing", "audit", "rewrite"], required=True)
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--pred", type=Path, required=True)
     parser.add_argument("--tolerance", type=float, default=0.01)
@@ -319,8 +362,10 @@ def main() -> None:
         scores = dataset2_score(args.gold, args.pred, args.tolerance)
     elif args.dataset == "writing":
         scores = dataset3_writing_score(args.gold, args.pred)
-    else:
+    elif args.dataset == "audit":
         scores = dataset4_audit_score(args.gold, args.pred)
+    else:
+        scores = dataset4_rewrite_score(args.gold, args.pred)
     print(json.dumps(scores, ensure_ascii=False, indent=2))
 
 

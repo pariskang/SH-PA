@@ -55,6 +55,8 @@ GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向
   上行文缺签发人/抄送下级、报告夹请示）+ **5 类医疗专属**（夸大/保证疗效、泄露患者隐私、科研探索当临床常规、
   AI 替代医师、医保基金违规）。金标准由独立检测器校验诚实性，按违规类型 precision/recall/F1 +
   逐项精确匹配 + 合规件零误报打分（`scorer.py --dataset audit`），完全确定性、逐字节可复现。
+  另含**纠错改写**子任务（`scorer.py --dataset rewrite`）：把含缺陷公文改写为合规公文，金标准为注入前的
+  合规底稿，按**违规清除/关键事实保留/格式合规**打分。
 
 ## 生成数据集
 
@@ -108,10 +110,14 @@ python gongwen_benchmark/evaluation/scorer.py --dataset dataqa \
 python gongwen_benchmark/evaluation/scorer.py --dataset writing \
   --gold gongwen_benchmark/dataset_3_writing/writing_prompts_with_rubric.jsonl \
   --pred your_writing_predictions.jsonl
-# 审核/纠错（预测写成 {"question_id": "...", "violations": ["code", ...]}）
+# 审核找错（预测写成 {"question_id": "...", "violations": ["code", ...]}）
 python gongwen_benchmark/evaluation/scorer.py --dataset audit \
   --gold gongwen_benchmark/dataset_4_audit/audit_tasks_with_gold.jsonl \
   --pred your_audit_predictions.jsonl
+# 纠错改写（预测写成 {"question_id": "...", "rewrite": "<改写后的公文全文>"}）
+python gongwen_benchmark/evaluation/scorer.py --dataset rewrite \
+  --gold gongwen_benchmark/dataset_4_audit/audit_tasks_with_gold.jsonl \
+  --pred your_rewrite_predictions.jsonl
 ```
 
 对经批准的脱敏聚合真实台账，使用 `--records-input`。导入器会拒绝个人隐私字段并默认匿名化机关。

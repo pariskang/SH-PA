@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
@@ -261,7 +262,7 @@ def _inject(spec: WritingSpec) -> tuple[str, list[str]]:
     for code in CANONICAL_ORDER:
         if code in chosen:
             INJECTORS[code][1](lines, spec)
-    return "\n".join(lines), sorted(chosen, key=VIOLATION_CODES.index)
+    return "\n".join(lines), sorted(chosen, key=VIOLATION_CODES.index), correct
 
 
 _VOCAB = "\n".join(f"- {code}：{desc}" for code, desc in VIOLATION_TYPES)
@@ -273,18 +274,28 @@ AUDIT_INSTRUCTION = (
 )
 
 
+REWRITE_INSTRUCTION = (
+    "下面这份公文可能存在若干不规范之处。请依据《党政机关公文处理工作条例》与 GB/T 9704—2012"
+    "（医疗卫生题还须遵循相关医疗法规与伦理、隐私、医保要求），将其改写为一份合规公文："
+    "纠正全部问题，保留文种、发文机关与事由等关键信息，规范标题三要素、层次序数、署名与成文日期。"
+    "仅输出改写后的公文全文。\n\n【原公文】\n"
+)
+
+
 def build_audit_dataset(count: int):
     specs = build_writing_specs(count)
     public, hidden = [], []
     for s in specs:
-        flawed, violations = _inject(s)
-        prompt = AUDIT_INSTRUCTION + flawed
-        public.append({"question_id": s.spec_id.replace("WP_", "AU_"), "prompt": prompt})
+        flawed, violations, correct = _inject(s)
+        qid = s.spec_id.replace("WP_", "AU_")
+        audit_prompt = AUDIT_INSTRUCTION + flawed
+        rewrite_prompt = REWRITE_INSTRUCTION + flawed
+        public.append({"question_id": qid, "prompt": audit_prompt, "rewrite_prompt": rewrite_prompt})
         hidden.append({
-            "question_id": s.spec_id.replace("WP_", "AU_"), "prompt": prompt,
-            "doc_type": s.doc_type, "length_bucket": s.length, "flawed_document": flawed,
-            "violations": violations, "violation_count": len(violations),
-            "is_clean": not violations,
+            "question_id": qid, "prompt": audit_prompt, "rewrite_prompt": rewrite_prompt,
+            "spec": asdict(s), "doc_type": s.doc_type, "length_bucket": s.length,
+            "flawed_document": flawed, "violations": violations, "violation_count": len(violations),
+            "is_clean": not violations, "corrected_document": correct,
         })
     return public, hidden
 
@@ -293,8 +304,10 @@ def build_audit_taxonomy() -> dict[str, Any]:
     return {
         "description": "CN-GongWen-Audit：公文审核/纠错（注入雷区→找出违规）",
         "violation_types": [{"code": c, "desc": d} for c, d in VIOLATION_TYPES],
-        "scored_metrics": ["violation_precision", "violation_recall", "violation_f1",
-                           "exact_match_rate", "clean_doc_accuracy"],
+        "audit_metrics": ["violation_precision", "violation_recall", "violation_f1",
+                          "exact_match_rate", "clean_doc_accuracy"],
+        "rewrite_metrics": ["violations_removed_rate", "facts_preserved_rate",
+                            "format_valid_rate", "overall_rewrite_compliance"],
     }
 
 

@@ -226,22 +226,26 @@ def validate_audit(root: Path) -> dict[str, Any]:
     public = jsonl(d4 / "audit_tasks_public.jsonl")
     hidden = jsonl(d4 / "audit_tasks_with_gold.jsonl")
 
-    assert all(set(p) <= {"question_id", "prompt"} for p in public), "audit public must hold only question_id+prompt"
-    assert all("violations" not in p for p in public), "audit public leaks gold"
+    assert all(set(p) <= {"question_id", "prompt", "rewrite_prompt"} for p in public), "audit public keys unexpected"
+    assert all("violations" not in p and "corrected_document" not in p for p in public), "audit public leaks gold"
     assert {p["question_id"] for p in public} == {h["question_id"] for h in hidden}, "audit id mismatch"
     assert len({h["question_id"] for h in hidden}) == len(hidden), "duplicate audit question_id"
 
-    # 金标准诚实：独立检测器须与注入的违规集合逐项一致
+    # 金标准诚实：独立检测器须与注入的违规集合逐项一致；纠错改写金标准（corrected_document）须本身合规
     from generate_audit_tasks import VIOLATION_CODES, detect_violations
     from generate_writing_prompts import build_writing_specs
     specs = {s.spec_id.replace("WP_", "AU_"): s for s in build_writing_specs(len(hidden))}
     codes = set(VIOLATION_CODES)
-    honest = 0
+    honest = corrected_clean = 0
     for h in hidden:
         assert set(h["violations"]) <= codes, "unknown audit violation code"
-        if detect_violations(h["flawed_document"], specs[h["question_id"]]) == set(h["violations"]):
+        spec = specs[h["question_id"]]
+        if detect_violations(h["flawed_document"], spec) == set(h["violations"]):
             honest += 1
+        if not detect_violations(h["corrected_document"], spec):
+            corrected_clean += 1
     assert honest == len(hidden), f"audit gold not detector-consistent: {len(hidden) - honest}"
+    assert corrected_clean == len(hidden), f"audit corrected_document not clean: {len(hidden) - corrected_clean}"
 
     clean = sum(1 for h in hidden if h["is_clean"])
     assert clean > 0 and (len(hidden) - clean) > 0, "audit needs both clean and flawed docs"
