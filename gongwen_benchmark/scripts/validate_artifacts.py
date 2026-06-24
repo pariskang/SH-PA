@@ -164,6 +164,7 @@ def validate(root: Path) -> dict[str, Any]:
         "classification_medical": cls_medical,
         "classification_total": len(classify),
         **validate_writing(root),
+        **validate_audit(root),
     }
 
 
@@ -213,6 +214,42 @@ def validate_writing(root: Path) -> dict[str, Any]:
         "writing_reference_in_range_share": round(in_range / len(hidden), 3),
         "writing_prompt_grounded_share": round(grounded / len(hidden), 3),
         "writing_medical_share": round(medical / len(hidden), 3),
+    }
+
+
+def validate_audit(root: Path) -> dict[str, Any]:
+    """CN-GongWen-Audit（dataset_4）：审核/纠错任务的跨文件校验与金标准诚实性检查。"""
+    d4 = root / "dataset_4_audit"
+    if not (d4 / "audit_tasks_public.jsonl").exists():
+        return {}  # 兼容尚未生成 dataset_4 的旧工件
+    public = jsonl(d4 / "audit_tasks_public.jsonl")
+    hidden = jsonl(d4 / "audit_tasks_with_gold.jsonl")
+
+    assert all(set(p) <= {"question_id", "prompt"} for p in public), "audit public must hold only question_id+prompt"
+    assert all("violations" not in p for p in public), "audit public leaks gold"
+    assert {p["question_id"] for p in public} == {h["question_id"] for h in hidden}, "audit id mismatch"
+    assert len({h["question_id"] for h in hidden}) == len(hidden), "duplicate audit question_id"
+
+    # 金标准诚实：独立检测器须与注入的违规集合逐项一致
+    from generate_audit_tasks import VIOLATION_CODES, detect_violations
+    from generate_writing_prompts import build_writing_specs
+    specs = {s.spec_id.replace("WP_", "AU_"): s for s in build_writing_specs(len(hidden))}
+    codes = set(VIOLATION_CODES)
+    honest = 0
+    for h in hidden:
+        assert set(h["violations"]) <= codes, "unknown audit violation code"
+        if detect_violations(h["flawed_document"], specs[h["question_id"]]) == set(h["violations"]):
+            honest += 1
+    assert honest == len(hidden), f"audit gold not detector-consistent: {len(hidden) - honest}"
+
+    clean = sum(1 for h in hidden if h["is_clean"])
+    assert clean > 0 and (len(hidden) - clean) > 0, "audit needs both clean and flawed docs"
+    covered = {v for h in hidden for v in h["violations"]}
+    return {
+        "audit": len(public),
+        "audit_clean": clean,
+        "audit_flawed": len(hidden) - clean,
+        "audit_violation_coverage": len(covered),
     }
 
 

@@ -5,7 +5,9 @@ import pytest
 from gongwen_benchmark.scripts.data_sources import ingest_csv
 from gongwen_benchmark.scripts.litellm_minimax import fact_guard
 from gongwen_benchmark.scripts.validate_artifacts import validate
-from gongwen_benchmark.evaluation.scorer import dataset1_score, dataset2_score, dataset3_writing_score
+from gongwen_benchmark.evaluation.scorer import (
+    dataset1_score, dataset2_score, dataset3_writing_score, dataset4_audit_score,
+)
 from gongwen_benchmark.scripts.generate_writing_prompts import build_writing_specs, LENGTH_BUCKETS
 from gongwen_benchmark.scripts.tokens import estimate_tokens
 
@@ -190,6 +192,40 @@ def test_writing_specs_obey_xingwen_rules():
             assert not spec.has_cc
         if spec.doc_type == "函":                              # 函为平行文
             assert spec.direction == "parallel"
+
+
+# --- CN-GongWen-Audit（dataset_4）：公文审核/纠错 ---
+def test_audit_dataset_integrity():
+    report = validate(ROOT)
+    assert report["audit"] >= 90
+    assert report["audit_clean"] > 0 and report["audit_flawed"] > 0
+    assert report["audit_violation_coverage"] == 11   # 全部 11 类违规均有覆盖
+
+
+def test_audit_scorer_perfect_on_gold():
+    path = ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl"
+    s = dataset4_audit_score(path, path)
+    assert s["violation_f1"] == 1.0 and s["exact_match_rate"] == 1.0 and s["clean_doc_accuracy"] == 1.0
+
+
+def test_audit_public_split_has_no_gold():
+    row = json.loads((ROOT / "dataset_4_audit/audit_tasks_public.jsonl").open(encoding="utf-8").readline())
+    assert set(row) <= {"question_id", "prompt"} and "violations" not in row
+
+
+def test_audit_scorer_discriminates(tmp_path):
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(
+        json.dumps({"question_id": "AU_1", "violations": ["hype_language", "year_square_bracket"]}, ensure_ascii=False) + "\n"
+        + json.dumps({"question_id": "AU_2", "violations": []}, ensure_ascii=False) + "\n", encoding="utf-8")
+    pred = tmp_path / "pred.jsonl"  # 漏报一项、误报一项，且对合规件过度报警
+    pred.write_text(
+        json.dumps({"question_id": "AU_1", "violations": ["hype_language", "seq_add_di"]}, ensure_ascii=False) + "\n"
+        + json.dumps({"question_id": "AU_2", "violations": ["date_chinese"]}, ensure_ascii=False) + "\n", encoding="utf-8")
+    s = dataset4_audit_score(gold, pred)
+    assert s["violation_f1"] < 1.0
+    assert s["exact_match_rate"] == 0.0
+    assert s["clean_doc_accuracy"] == 0.0   # 误报合规件
 
 
 def test_token_buckets_ordered_and_estimator_counts_cjk():

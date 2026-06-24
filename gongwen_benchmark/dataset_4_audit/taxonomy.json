@@ -1,0 +1,56 @@
+{
+  "description": "CN-GongWen-Audit：公文审核/纠错（注入雷区→找出违规）",
+  "violation_types": [
+    {
+      "code": "title_missing_doctype",
+      "desc": "标题缺少文种（标题三要素不全）"
+    },
+    {
+      "code": "year_square_bracket",
+      "desc": "发文字号年份误用方括号（应为六角括号〔〕）"
+    },
+    {
+      "code": "seq_add_di",
+      "desc": "发文字号顺序号误加“第”字"
+    },
+    {
+      "code": "date_chinese",
+      "desc": "成文日期误用汉字数字（应为阿拉伯数字）"
+    },
+    {
+      "code": "ordinal_dunhao",
+      "desc": "第二层层次序号“（一）”后误加顿号"
+    },
+    {
+      "code": "hype_language",
+      "desc": "使用夸大/网络化/绝对化等不规范表述"
+    },
+    {
+      "code": "fabricated_legal_article",
+      "desc": "编造法规条款依据（如“第99条”）"
+    },
+    {
+      "code": "qingshi_multihead",
+      "desc": "请示多头主送（违反一文一事、单一主送）"
+    },
+    {
+      "code": "missing_signatory_upward",
+      "desc": "上行文缺少签发人"
+    },
+    {
+      "code": "baogao_embeds_request",
+      "desc": "报告夹带请示事项"
+    },
+    {
+      "code": "cc_to_subordinate_upward",
+      "desc": "上行文抄送下级机关"
+    }
+  ],
+  "scored_metrics": [
+    "violation_precision",
+    "violation_recall",
+    "violation_f1",
+    "exact_match_rate",
+    "clean_doc_accuracy"
+  ]
+}

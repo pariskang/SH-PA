@@ -279,9 +279,36 @@ def dataset3_writing_score(rubric_path: Path, pred_path: Path) -> dict[str, floa
     return scores
 
 
+def dataset4_audit_score(gold_path: Path, pred_path: Path) -> dict[str, float]:
+    """公文审核/纠错评分：违规类型集合的 precision/recall/F1 + 逐项精确匹配 + 合规样本零误报。"""
+    gold = {r["question_id"]: set(r.get("violations", [])) for r in read_jsonl(gold_path)}
+    pred = {r["question_id"]: set(r.get("violations", [])) for r in read_jsonl(pred_path)}
+    total = len(gold)
+    if total == 0:
+        return {}
+    tp = fp = fn = exact = clean_total = clean_ok = 0
+    for qid, gold_set in gold.items():
+        pred_set = pred.get(qid, set())
+        tp += len(gold_set & pred_set)
+        fp += len(pred_set - gold_set)
+        fn += len(gold_set - pred_set)
+        exact += int(gold_set == pred_set)
+        if not gold_set:
+            clean_total += 1
+            clean_ok += int(not pred_set)
+    precision = tp / (tp + fp) if tp + fp else 1.0
+    recall = tp / (tp + fn) if tp + fn else 1.0
+    f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+    return {
+        "violation_precision": precision, "violation_recall": recall, "violation_f1": f1,
+        "exact_match_rate": exact / total,
+        "clean_doc_accuracy": 1.0 if clean_total == 0 else clean_ok / clean_total,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["q", "dataqa", "writing"], required=True)
+    parser.add_argument("--dataset", choices=["q", "dataqa", "writing", "audit"], required=True)
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--pred", type=Path, required=True)
     parser.add_argument("--tolerance", type=float, default=0.01)
@@ -290,8 +317,10 @@ def main() -> None:
         scores = dataset1_score(args.gold, args.pred)
     elif args.dataset == "dataqa":
         scores = dataset2_score(args.gold, args.pred, args.tolerance)
-    else:
+    elif args.dataset == "writing":
         scores = dataset3_writing_score(args.gold, args.pred)
+    else:
+        scores = dataset4_audit_score(args.gold, args.pred)
     print(json.dumps(scores, ensure_ascii=False, indent=2))
 
 

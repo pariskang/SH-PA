@@ -9,7 +9,7 @@
 - 《党政机关公文处理工作条例》(2012)：15 种法定公文文种。
 - GB/T 9704—2012《党政机关公文格式》：18 个版头/主体/版记格式要素。
 
-## 三套数据集
+## 四套数据集
 
 1. **CN-GongWen-Q**：纯问题自然语言压力测试，覆盖 11 类问题类型：
    - `single_doc_type`、`multi_doc_type`、`cross_element_chain`（跨要素链式推理）、
@@ -46,6 +46,12 @@
      评分 `rubric` 与 `reference_answer`（合规且命中目标 token 区间的参考公文）始终确定性、事实接地，
      故金标准自评满分、逐字节可复现。打分见 `scorer.py --dataset writing`，**11 个结构化维度**：
      长度/标题/层次/署名日期/签发人/主送/行文方向/**可执行性/标点/语言安全**/雷区规避。
+4. **CN-GongWen-Audit**：公文**审核/纠错**任务，对标"审核清单 / 十项硬核自查"。在确定性"正确底稿"
+   （复用 dataset_3 参考公文）上**确定性注入**一个违规子集（约 1/4 为完全合规的对照样本），要求模型
+   找出全部违规。覆盖 **11 类违规**：标题缺文种、发文字号方括号、字号加"第"、成文日期用汉字、
+   第二层序号加顿号、夸大用语、编造法规条款、请示多头主送、上行文缺签发人、报告夹请示、上行文抄送下级。
+   金标准 = 注入集合，并由**独立检测器**断言"注入即可检出"（金标准诚实）；打分
+   `scorer.py --dataset audit`：违规类型 precision/recall/F1 + 逐项精确匹配 + 合规件零误报。
 
 ## 医疗卫生政策方向（约占一半）
 
@@ -93,6 +99,7 @@ gongwen_benchmark/
 ├─ dataset_1_question_only/    # CN-GongWen-Q：public + hidden + taxonomy
 ├─ dataset_2_data_qa/          # CN-GongWen-DataQA：records.csv + questions/answers/...
 ├─ dataset_3_writing/          # CN-GongWen-Writing：public prompt + with_rubric(参考公文) + taxonomy
+├─ dataset_4_audit/            # CN-GongWen-Audit：public(待审公文) + with_gold(违规标签) + taxonomy
 ├─ evaluation/                 # scorer.py + 度量/规则/报告模板
 ├─ workflow/                   # 公文办理流转（OA）事件流示例
 ├─ scripts/                    # 模式、生成器、校验器、真实数据导入、LiteLLM

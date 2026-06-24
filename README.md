@@ -30,7 +30,7 @@ GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向
 > 作为分步讲解版 pipeline。所有数值/排序/合规标签均由 Python 确定性计算，MiniMax 仅在**事实护栏**
 > 下做表层改写，因此有无 LLM 产物完全一致。
 
-## 已实现的三套基准
+## 已实现的四套基准
 
 - **CN-GongWen-Q**：纯自然语言问题集，压力测试文种判定、行文方向、格式要素识别、
   适用情形、常见错误辨析、边界精度、否定枚举、管理开放题、模糊澄清、**18 种幻觉/安全陷阱**
@@ -45,6 +45,11 @@ GB/T 9704—2012《党政机关公文格式》规定的**格式要素**。面向
   覆盖全部 15 法定文种。测试 prompt 在配置 `MINIMAX_API_KEY` 时由 LLM **一次生成 10 条**、否则确定性模板
   （提交即冻结）；评分 rubric 与参考公文为**确定性事实接地**，故金标准自评满分、逐字节可复现。
   配套 `scorer.py --dataset writing` 做 **11 维**结构化合规打分。
+- **CN-GongWen-Audit**：公文**审核/纠错**任务（对标"审核清单/十项硬核自查"）。给一份**确定性注入了
+  若干雷区**的公文（含约 1/4 完全合规的对照样本），要求模型找出全部违规；覆盖 **11 类违规**
+  （标题缺文种、字号方括号/加"第"、成文日期用汉字、层次序号顿号、夸大用语、编造法规条款、请示多头主送、
+  上行文缺签发人/抄送下级、报告夹请示）。金标准由独立检测器校验诚实性，按违规类型 precision/recall/F1 +
+  逐项精确匹配 + 合规件零误报打分（`scorer.py --dataset audit`），完全确定性、逐字节可复现。
 
 ## 生成数据集
 
@@ -92,6 +97,10 @@ python gongwen_benchmark/evaluation/scorer.py --dataset dataqa \
 python gongwen_benchmark/evaluation/scorer.py --dataset writing \
   --gold gongwen_benchmark/dataset_3_writing/writing_prompts_with_rubric.jsonl \
   --pred your_writing_predictions.jsonl
+# 审核/纠错（预测写成 {"question_id": "...", "violations": ["code", ...]}）
+python gongwen_benchmark/evaluation/scorer.py --dataset audit \
+  --gold gongwen_benchmark/dataset_4_audit/audit_tasks_with_gold.jsonl \
+  --pred your_audit_predictions.jsonl
 ```
 
 对经批准的脱敏聚合真实台账，使用 `--records-input`。导入器会拒绝个人隐私字段并默认匿名化机关。

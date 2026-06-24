@@ -73,12 +73,13 @@ class ProfileSpec:
     default_q: int
     default_dataqa: int
     default_writing: int
+    default_audit: int
 
 
 PROFILES: dict[str, ProfileSpec] = {
-    "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200, default_writing=30),
-    "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000, default_writing=90),
-    "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000, default_writing=180),
+    "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200, default_writing=30, default_audit=30),
+    "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000, default_writing=90, default_audit=90),
+    "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000, default_writing=180, default_audit=180),
 }
 
 
@@ -1147,6 +1148,10 @@ def main() -> None:
     from generate_writing_prompts import write_writing_dataset
     writing = write_writing_dataset(profile.default_writing, args.use_litellm, cfg)
 
+    # CN-GongWen-Audit（dataset_4）：公文审核/纠错（确定性注入雷区→找出违规），完全确定性。
+    from generate_audit_tasks import write_audit_dataset
+    audit = write_audit_dataset(profile.default_audit)
+
     if args.export_parquet:
         export_parquet(records, args.export_parquet)
 
@@ -1155,6 +1160,7 @@ def main() -> None:
         "q_questions": len(public), "dataqa_questions": len(questions),
         "anomaly_labels": len(anomaly_labels), "briefing_tasks": len(briefing_tasks),
         "writing_prompts": writing["writing_count"], "writing_buckets": writing["writing_buckets"],
+        "audit_tasks": audit["audit_count"], "audit_flawed": audit["audit_flawed"],
         "used_litellm": bool(args.use_litellm),
     }, ensure_ascii=False, indent=2))
 
