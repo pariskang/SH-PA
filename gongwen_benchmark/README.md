@@ -11,15 +11,16 @@
 
 ## 四套数据集
 
-1. **CN-GongWen-Q**：纯问题自然语言压力测试，覆盖 11 类问题类型：
+1. **CN-GongWen-Q**：纯问题自然语言压力测试，覆盖 14 类问题类型：
    - `single_doc_type`、`multi_doc_type`、`cross_element_chain`（跨要素链式推理）、
      `temporal_compound`（时效复合）、`conflicting_signals`（文种—行文方向冲突）、
      `boundary_precision`（份号位数/字号格式等精确规则）、`negative_enumeration`（否定枚举）、
      `management_open`、`ambiguous_boundary`、`hallucination_trap`（**18 种不同陷阱**）、
      `spoken_noisy`。
-   - 行文关系与权限雷区已扩充：主送上级领导个人、越级行文未抄送被越过机关、部门越权/未会签擅自向下行文、
-     内设机构对外行文、方案/计划/总结/申请等非法定文种误用（分别并入 `conflicting_signals` /
-     `management_open` / `negative_enumeration`，不改变题型配比与医疗/难度分布）。
+   - **新增 3 类显式题型**（来自行文规范雷区）：`doctype_misuse`（文种误用：请示/报告、函/请示、
+     公告/通告、方案等非文种当文种）、`addressing_relation`（行文关系：主送领导个人、越级未抄送、
+     上行文抄送下级、原文转报）、`authority_boundary`（权限边界：部门越权、未会签、内设机构对外行文、
+     代党委政府决定）。题量配比经重排，仍保持医疗约 50%、hard ≥40%、easy ≤25%。
 2. **CN-GongWen-DataQA**：基于合成公文语料的数据问答，覆盖 16 类任务：
    - 基线 8：`direct_lookup`、`cross_agency_ranking`、`period_comparison`、`sustained_trend`、
      `composite_element_explanation`、`anomaly_detection`、`priority_ranking`、`briefing`。

@@ -267,7 +267,10 @@
     "management_open",
     "ambiguous_boundary",
     "hallucination_trap",
-    "spoken_noisy"
+    "spoken_noisy",
+    "doctype_misuse",
+    "addressing_relation",
+    "authority_boundary"
   ],
   "query_types": [
     "DOC_TYPE_SELECTION",

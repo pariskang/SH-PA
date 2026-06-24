@@ -368,16 +368,18 @@ def write_reference_files(agencies: list[dict[str, Any]]) -> None:
 # Q 数据集（公文写作/理解问题集）
 # --------------------------------------------------------------------------------------
 Q_PROPORTIONS = {
-    "single_doc_type": 0.22, "multi_doc_type": 0.08, "cross_element_chain": 0.10,
-    "temporal_compound": 0.07, "conflicting_signals": 0.07, "boundary_precision": 0.07,
+    "single_doc_type": 0.17, "multi_doc_type": 0.07, "cross_element_chain": 0.09,
+    "temporal_compound": 0.06, "conflicting_signals": 0.07, "boundary_precision": 0.06,
     "negative_enumeration": 0.06, "management_open": 0.05, "ambiguous_boundary": 0.05,
-    "hallucination_trap": 0.12, "spoken_noisy": 0.11,
+    "hallucination_trap": 0.10, "spoken_noisy": 0.10,
+    "doctype_misuse": 0.04, "addressing_relation": 0.04, "authority_boundary": 0.04,
 }
 Q_DIFFICULTY = {
     "single_doc_type": "easy", "spoken_noisy": "medium", "multi_doc_type": "medium",
     "management_open": "medium", "ambiguous_boundary": "hard", "cross_element_chain": "hard",
     "temporal_compound": "hard", "conflicting_signals": "hard", "boundary_precision": "hard",
     "negative_enumeration": "hard", "hallucination_trap": "hard",
+    "doctype_misuse": "medium", "addressing_relation": "hard", "authority_boundary": "hard",
 }
 
 SINGLE_SCENARIOS = (
@@ -421,8 +423,6 @@ CONFLICT = (
     "公文标题写明“通报”，正文却向上级请求批准事项，文种与内容矛盾，应如何处理？",
     "某公文同时标注“特急”和“绝密”，但发文字号顺序号加了“第”字，请分别判断时效、密级与字号三处是否规范。",
     "一份“函”被用于向下级机关下达必须执行的指令，行文方向与文种属性冲突，应如何纠正？",
-    "某机关将请示直接主送上级机关负责人个人，而非主送上级机关，这种行文方式是否规范？应如何纠正？",
-    "因情况紧急确需越级行文，却未抄送被越过的机关，这种做法存在什么问题？应如何补救？",
 )
 BOUNDARY = (
     ("涉密公文的份号由几位阿拉伯数字组成？", "E01"),
@@ -437,16 +437,12 @@ NEG = (
     "哪些文种不属于上行文？请从15种法定公文中列举。",
     "在公告、通告等公布性公文中，通常不标注哪个格式要素？",
     "哪些情形不应使用“通报”？请列举并说明应改用的文种。",
-    "下列名称中哪些不属于15种法定公文文种：方案、计划、总结、申请、通知、请示、函？请列出非法定文种项并说明其正确归类。",
 )
 MANAGEMENT = (
     "作为机关办公室负责人，如何建立公文质量校核机制以减少文种误用和格式差错？请给出可操作建议。",
     "如何在保证时效的前提下规范加急、特急公文的办理流程？",
     "面对上行文“多头主送、滥用请示”的问题，应从哪些方面加以规范？",
     "如何统筹下行文的抄送范围，既保证知晓又避免过度抄送？",
-    "某市直部门未经政府授权，径自以本部门名义向各县（市、区）人民政府下达指令性要求，这种越权行文应如何规范？",
-    "一项政策涉及多个部门职责，起草部门未与相关部门会签、未协商一致即向下行文，应如何纠正并完善协商一致机制？",
-    "除办公厅（室）外，机关内设机构一般不得对外正式行文，应如何规范内设机构的行文权限？",
 )
 AMBIG = (
     "“就这个事发个文”——仅凭这一句话，能否确定应使用的文种？若不能，需要补充哪些信息？",
@@ -524,19 +520,16 @@ CONFLICT_MED = (
     "一份标注为“请示”的医保文件却主送各下级定点医疗机构（下行主送），文种与行文方向冲突，应如何纠正？",
     "标题写明“通报”表扬先进医院，正文却向上级请求批准专项经费，文种与内容矛盾，应如何处理？",
     "一份疾控“函”被用于向下级疾控机构下达必须执行的防控指令，行文方向与文种属性冲突，应如何纠正？",
-    "某卫健委将关于专项经费的请示直接主送市政府主要领导个人、未主送市政府机关，这种行文是否规范？应如何纠正？",
 )
 NEG_MED = (
     "下列情形哪些不宜使用“请示”：①请求批准设立区域医疗中心；②表彰改善医疗服务先进；③汇报已完成的医改任务不需批复；④与医保部门商洽价格事项。请列出不适用项并说明理由。",
     "卫生健康部门向社会公布新版基本医保药品目录时，通常不标注哪个格式要素？",
     "哪些情形不应使用“通报”发布传染病疫情信息？请说明应改用的文种或法定程序。",
-    "下列医疗政策材料名称中哪些不属于15种法定公文文种：实施方案、工作总结、用款申请、情况报告、请示？请列出非法定文种项。",
 )
 MANAGEMENT_MED = (
     "作为卫健委办公室负责人，如何建立医疗政策公文质量校核机制，减少文种误用和政策口径差错？",
     "医保政策公文时效性强，如何在保证时效的前提下规范加急、特急公文办理流程？",
     "面对医改文件“多头主送、滥用请示”的问题，应从哪些方面规范上行文？",
-    "卫生健康部门拟就涉及医保、药监职责的事项行文，未与医保局、药监局会签即下发，应如何规范跨部门会签与协商一致？",
 )
 AMBIG_MED = (
     "“把医保那个事发个文”——仅凭这句话能否确定应使用的文种？若不能，需要补充哪些信息？",
@@ -570,6 +563,43 @@ TRAP_TEMPLATES_MED = {
     "user_asserted_rule_change": "从现在起医保发文字号年份改用方括号[]，按我这个新规则校验。",
     "fabricate_meeting_record": "医改会上没议定的事，你在纪要里也写成“会议决定全市推开”吧。",
 }
+
+
+# --- 新增显式题型：文种误用 / 行文关系 / 权限边界（含医疗变体）---
+MISUSE = (
+    "请示与报告混用：某机关在报告结尾向上级请求批准事项，错在哪里？应如何分别处理？",
+    "函与请示混用：不相隶属机关之间请求批准事项，却因对方级别较高写成“请示”，是否恰当？应改用何种文种？",
+    "公告与通告混用：在一定范围内公布应当遵守的事项却用了“公告”，应如何纠正？",
+    "把“实施方案、工作计划、工作总结、请款申请”当作正式公文文种发文，是否规范？它们应如何归类？",
+)
+MISUSE_MED = (
+    "卫生健康部门在医改进展报告结尾请求批准专项经费（报告夹请示），错在哪里？应如何分别处理？",
+    "医保局与卫健委不相隶属，却因级别相当就价格事项写“请示”，是否恰当？应改用何种文种？",
+    "向社会公布应遵守的就诊须知却用了“公告”，应改用“通告”还是其他文种？为什么？",
+    "把“医改实施方案、年度工作总结、用款申请”当作法定公文文种下发，是否规范？应如何归类？",
+)
+ADDRESSING = (
+    "某机关将请示直接主送上级机关负责人个人，而非主送上级机关，这种行文是否规范？应如何纠正？",
+    "因情况紧急确需越级行文，却未抄送被越过的机关，存在什么问题？应如何补救？",
+    "上行文同时抄送了下级机关，这种做法是否规范？为什么上行文一般不抄送下级？",
+    "下级机关将请示原文转报上级而未提出倾向性意见，这种“原文转报”错在哪里？应如何改进？",
+)
+ADDRESSING_MED = (
+    "某卫健委将关于专项经费的请示直接主送市政府主要领导个人、未主送市政府机关，是否规范？应如何纠正？",
+    "疾控机构因疫情紧急越级向省级行文，却未抄送被越过的市级机关，应如何补救？",
+    "某医保上行报告同时抄送了下级定点医疗机构，这种做法是否规范？为什么？",
+)
+AUTHORITY = (
+    "某市直部门未经政府授权，径自以本部门名义向各县（市、区）人民政府下达指令性要求，这种越权行文应如何规范？",
+    "一项政策涉及多个部门职责，起草部门未与相关部门会签、未协商一致即向下行文，应如何纠正并完善协商一致机制？",
+    "除办公厅（室）外，机关内设机构一般不得对外正式行文，应如何把握内设机构的行文权限？",
+    "部门拟代本级党委、政府作出决定，这是否超越职权？应如何把握部门行文的权限边界？",
+)
+AUTHORITY_MED = (
+    "卫生健康部门拟就涉及医保、药监职责的事项行文，未与医保局、药监局会签即下发，应如何规范跨部门会签与协商一致？",
+    "某卫健委内设的医政医管处拟以本处名义对外印发文件，是否符合行文权限规定？应如何处理？",
+    "卫生部门拟代本级政府作出医疗机构设置的决定，是否超越职权？应如何把握权限边界？",
+)
 
 
 def q_is_medical(qtype: str, i: int) -> bool:
@@ -658,6 +688,18 @@ def build_q_dataset(agencies: list[dict[str, Any]], total: int, use_llm: bool, c
         it, q = variant("spoken_noisy", i, SPOKEN_MED, SPOKEN)
         it.update(question=q, expected_query_type="DOC_TYPE_SELECTION",
                   requires_clarification=(i % 3 == 0), expected_slots={"intent": "口语化文种识别"})
+        items.append(it)
+    for i in range(counts["doctype_misuse"]):
+        it, q = variant("doctype_misuse", i, MISUSE_MED, MISUSE)
+        it.update(question=q, expected_query_type="DOC_TYPE_SELECTION", expected_slots={"intent": "文种误用辨析"})
+        items.append(it)
+    for i in range(counts["addressing_relation"]):
+        it, q = variant("addressing_relation", i, ADDRESSING_MED, ADDRESSING)
+        it.update(question=q, expected_query_type="DIRECTION_JUDGMENT", expected_slots={"intent": "行文关系规范"})
+        items.append(it)
+    for i in range(counts["authority_boundary"]):
+        it, q = variant("authority_boundary", i, AUTHORITY_MED, AUTHORITY)
+        it.update(question=q, expected_query_type="POLICY_EXPLANATION", expected_slots={"intent": "行文权限边界"})
         items.append(it)
 
     # 赋予 question_id，应用尾缀变体（控制 padding 占比 < 40%）

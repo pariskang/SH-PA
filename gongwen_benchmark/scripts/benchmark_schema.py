@@ -103,6 +103,9 @@ QUESTION_TYPES = (
     "ambiguous_boundary",   # 模糊边界（通知/通报/通告）
     "hallucination_trap",   # 幻觉陷阱
     "spoken_noisy",         # 口语化/噪声问题
+    "doctype_misuse",       # 文种误用（请示/报告、函/请示、公告/通告、方案等非文种当文种）
+    "addressing_relation",  # 行文关系（主送领导个人、越级未抄送、上行文抄送下级、原文转报）
+    "authority_boundary",   # 权限边界（部门越权、未会签、内设机构对外行文、代党委政府决定）
 )
 
 # Q 数据集查询类型
