@@ -1152,6 +1152,8 @@ def main() -> None:
     cfg = LiteLLMConfig() if args.use_litellm else None
     if args.use_litellm and not litellm_available():
         raise SystemExit("litellm 未安装：pip install '.[llm]'")
+    if args.use_litellm and (cfg is None or not cfg.api_key):
+        raise SystemExit("启用 --use-litellm 需先配置 MINIMAX_API_KEY（或 OPENAI_API_KEY）")
 
     agencies = agency_metadata(profile.agencies)
     if args.records_input:

@@ -129,8 +129,11 @@ export MINIMAX_MODEL=MiniMax-M1
 python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard --use-litellm
 ```
 
-LiteLLM 仅改写问题或润色播报文字。文种、行文方向、发文字号、密级、数值、排序、
-合规判定与证据行始终由 Python 从 `records.csv` 确定性计算。
+`--use-litellm` 在事实护栏下改写三处表层文本：**Q 问题措辞**、**DataQA 播报语言**、
+**Writing 测试 prompt**；文种、行文方向、发文字号、密级、数值、排序、合规判定、证据行，
+以及写作 rubric/参考公文与审核金标准，始终由 Python 从 `records.csv` 确定性计算。
+LLM 调用带磁盘缓存与重试，**单条失败自动回退确定性模板**，故冻结流程不中断；提交即冻结这批产物。
+（未配 `MINIMAX_API_KEY`/`OPENAI_API_KEY` 时启用 `--use-litellm` 会提前明确报错。）
 
 ## 经批准的真实/混合数据工作流
 

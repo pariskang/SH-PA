@@ -86,6 +86,15 @@ def test_fact_guard_rejects_factual_drift():
     assert not fact_guard(source, "示市财〔2026〕13号公文为加急件")
 
 
+def test_llm_rewrite_falls_back_without_key(monkeypatch):
+    """无密钥/调用失败时，--use-litellm 的改写/润色须优雅回退到确定性模板（冻结流程不中断）。"""
+    from gongwen_benchmark.scripts.litellm_minimax import rewrite_question, polish_briefing
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert rewrite_question("原始问题文本", {"question_type": "single_doc_type"}) == "原始问题文本"
+    assert polish_briefing("原始播报文本", []) == "原始播报文本"
+
+
 def test_real_ingest_rejects_privacy_columns(tmp_path):
     path = tmp_path / "bad.csv"
     path.write_text(

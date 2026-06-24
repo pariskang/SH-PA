@@ -77,6 +77,12 @@ export MINIMAX_MODEL=MiniMax-M1
 python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard --use-litellm
 ```
 
+**LLM 改写并冻结（三套数据集一次覆盖）**：`--use-litellm` 在事实护栏下仅改写**表层文本**——
+CN-GongWen-Q 的**问题措辞**、CN-GongWen-DataQA 的**播报语言**、CN-GongWen-Writing 的**测试 prompt**；
+文种/字号/日期/密级/数值/排序/合规判定，以及写作 rubric/参考公文、审核金标准，**始终由 Python 确定性计算**。
+LLM 调用带磁盘缓存与重试，**单条失败自动回退确定性模板**（冻结流程不中断）；`--use-litellm` 未配密钥会**提前明确报错**。
+运行后 `git add` 提交即"**冻结**"这批 LLM 产物；无 `--use-litellm` 的逐字节复现仍以确定性基线为准。
+
 ## 校验与评测
 
 ```bash
