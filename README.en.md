@@ -229,7 +229,14 @@ datasets), with a 95% CI from 1000 bootstrap resamples of model scores.
 | **poe** | `POE_API_KEY` ([poe.com/api_key](https://poe.com/api_key)) | `POE_BOT_NAME` |
 
 Common: `CN_GW_LLM_TEMPERATURE`(0.35), `CN_GW_LLM_TIMEOUT`, `CN_GW_LLM_RETRIES`(3),
-`CN_GW_LLM_CACHE`(cache dir), `CN_GW_EVAL_DELAY`(seconds between calls), `CN_GW_BOOTSTRAP_N`(1000).
+`CN_GW_LLM_CACHE`(cache dir), `CN_GW_EVAL_DELAY`(seconds between calls), `CN_GW_BOOTSTRAP_N`(1000),
+`CN_GW_CONTEXT_ROW_CAP`(DataQA context row cap, 0=unlimited; set a bound for small-context models),
+`CN_GW_EVAL_PREFLIGHT`(default 1; set 0 to skip the one-call startup probe).
+
+> **Reliability**: evaluation runs a **provider preflight** (library/key/endpoint + one probe
+> call) before any dataset; on failure it exits non-zero and skips that model — a broken
+> environment cannot slip onto the leaderboard as a silent ~0.57. Predictions are flushed
+> per-question; add `--resume` to continue an interrupted run (default is a fresh overwrite).
 
 ## Underlying scorers (auto-invoked by eval_runner; usable standalone)
 

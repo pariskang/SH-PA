@@ -1204,9 +1204,12 @@ def main() -> None:
     dataqa_count = args.dataqa_questions or profile.default_dataqa
 
     use_llm = args.use_llm or args.use_litellm
+    # --provider is honored whenever LLM rewriting is on, including the legacy
+    # --use-litellm spelling (so `--use-litellm --provider azure` does NOT
+    # silently downgrade to litellm).
+    provider = args.provider
     cfg: ProviderConfig | None = None
     if use_llm:
-        provider = args.provider if args.use_llm else "litellm"
         cfg = config_from_provider(provider, args.llm_model)
         if provider in ("litellm", "azure") and not litellm_available():
             raise SystemExit(
@@ -1242,7 +1245,7 @@ def main() -> None:
     write_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl", hidden)
     (DATASET1 / "taxonomy.json").write_text(json.dumps(build_taxonomy(), ensure_ascii=False, indent=2), encoding="utf-8")
     provider_label = (
-        f"{args.provider}/{type(cfg).__name__}" if cfg is not None else "none"
+        f"{provider}/{type(cfg).__name__}" if cfg is not None else "none"
     )
     (DATASET1 / "generation_prompts.md").write_text(
         "# CN-GongWen-Q 生成说明\n\n"
@@ -1265,7 +1268,7 @@ def main() -> None:
     # CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt。
     # 评分真相（rubric/framework/reference）确定性生成；prompt 文本在 use_llm 且有 key 时由 LLM 一次 10 条撰写。
     from generate_writing_prompts import write_writing_dataset
-    writing = write_writing_dataset(profile.default_writing, use_llm, cfg)
+    writing = write_writing_dataset(profile.default_writing, use_llm, cfg, provider_name=provider)
 
     # CN-GongWen-Audit（dataset_4）：公文审核/纠错（确定性注入雷区→找出违规），完全确定性。
     from generate_audit_tasks import write_audit_dataset

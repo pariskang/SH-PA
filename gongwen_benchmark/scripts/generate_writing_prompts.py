@@ -596,17 +596,30 @@ def write_writing_dataset(count: int, use_llm: bool = False, cfg: ProviderConfig
     (DATASET3 / "taxonomy.json").write_text(
         json.dumps(build_writing_taxonomy(), ensure_ascii=False, indent=2), encoding="utf-8")
     buckets = {k: sum(1 for h in hidden if h["length_bucket"] == k) for k in LENGTH_ORDER}
+    # Report the engine label from what was ACTUALLY used per prompt (each hidden
+    # row records its prompt_engine), not the requested provider — so a run where
+    # every LLM prompt failed the fact-guard and fell back is labeled honestly.
+    engines = {h.get("prompt_engine", "deterministic") for h in hidden}
+    if engines == {provider_name}:
+        engine_label = provider_name
+    elif engines == {"deterministic"}:
+        engine_label = "deterministic"
+    else:
+        engine_label = "mixed:" + "+".join(sorted(engines))
     return {
         "writing_count": len(public),
         "writing_buckets": buckets,
         "writing_doc_types": len({h["spec"]["doc_type"] for h in hidden}),
         "writing_medical_share": round(sum(h["spec"]["policy_domain"] == "医疗卫生" for h in hidden) / max(1, len(hidden)), 3),
-        "writing_prompt_engine": provider_name if (use_llm and cfg is not None) else "deterministic",
+        "writing_prompt_engine": engine_label,
     }
 
 
 def main() -> None:
-    from llm_providers import config_from_provider, AzureConfig, PoeConfig
+    from llm_providers import (
+        config_from_provider, AzureConfig, PoeConfig, LiteLLMConfig,
+        litellm_available, poe_available,
+    )
     parser = argparse.ArgumentParser(description="生成公文写作测试 prompt（按目标产出 token 分短/中/长）")
     parser.add_argument("--count", type=int, default=90, help="题量（90 时恰覆盖 15 文种×3 长度×2 政策方向）")
     parser.add_argument("--use-litellm", action="store_true", help="[已弃用] 与 --use-llm 相同")
@@ -619,8 +632,23 @@ def main() -> None:
     args = parser.parse_args()
     use_llm = args.use_llm or args.use_litellm
     if use_llm:
-        cfg = config_from_provider(args.provider, args.llm_model)
         provider_name = args.provider
+        cfg = config_from_provider(provider_name, args.llm_model)
+        # Per-provider preflight (mirror generate_benchmarks): fail loudly instead
+        # of silently producing an all-deterministic dataset.
+        if provider_name in ("litellm", "azure") and not litellm_available():
+            raise SystemExit(f"litellm 未安装（provider={provider_name}）：pip install '.[llm]'")
+        if provider_name == "poe" and not poe_available():
+            raise SystemExit("fastapi-poe 未安装（provider=poe）：pip install '.[poe]'")
+        if isinstance(cfg, AzureConfig) and not cfg.api_key:
+            raise SystemExit("Azure provider 需配置 AZURE_API_KEY 或 AZURE_OPENAI_API_KEY")
+        if isinstance(cfg, PoeConfig) and not cfg.api_key:
+            raise SystemExit("Poe provider 需配置 POE_API_KEY（https://poe.com/api_key）")
+        if isinstance(cfg, LiteLLMConfig) and not cfg.api_key:
+            raise SystemExit(
+                "LiteLLM provider 需配置 API key（LLM_API_KEY / OPENAI_API_KEY / "
+                "ANTHROPIC_API_KEY / DEEPSEEK_API_KEY 之一）"
+            )
     else:
         cfg = None
         provider_name = "deterministic"

@@ -206,7 +206,13 @@ bootstrap 重采样给出 95% 置信区间。
 | **poe** | `POE_API_KEY`（[poe.com/api_key](https://poe.com/api_key)） | `POE_BOT_NAME` |
 
 通用：`CN_GW_LLM_TEMPERATURE`(0.35)、`CN_GW_LLM_TIMEOUT`、`CN_GW_LLM_RETRIES`(3)、
-`CN_GW_LLM_CACHE`(缓存目录)、`CN_GW_EVAL_DELAY`(调用间隔秒)、`CN_GW_BOOTSTRAP_N`(1000)。
+`CN_GW_LLM_CACHE`(缓存目录)、`CN_GW_EVAL_DELAY`(调用间隔秒)、`CN_GW_BOOTSTRAP_N`(1000)、
+`CN_GW_CONTEXT_ROW_CAP`(DataQA 上下文行上限，0=不限；小上下文模型可设上限)、
+`CN_GW_EVAL_PREFLIGHT`(默认 1；设 0 跳过启动前的一次探测调用)。
+
+> **可靠性**：评测启动前会做 **provider 预检**（库/密钥/端点 + 一次探测调用），
+> 失败即非 0 退出并跳过该模型——损坏环境不会以静默 ~0.57 混入排行榜。逐题预测**即时落盘**，
+> 加 `--resume` 可断点续跑（默认覆盖重跑）。
 
 ## 底层打分器（eval_runner 已自动调用；也可单独使用）
 

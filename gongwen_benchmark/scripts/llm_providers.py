@@ -88,7 +88,8 @@ class LiteLLMConfig:
     api_key: str | None = (
         os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or
         os.getenv("MINIMAX_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or
-        os.getenv("DEEPSEEK_API_KEY") or os.getenv("TOGETHER_API_KEY")
+        os.getenv("DEEPSEEK_API_KEY") or os.getenv("TOGETHER_API_KEY") or
+        os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     )
     temperature: float = float(os.getenv("CN_GW_LLM_TEMPERATURE", "0.35"))
     timeout: int = int(os.getenv("CN_GW_LLM_TIMEOUT", "60"))
@@ -96,14 +97,14 @@ class LiteLLMConfig:
 
     @property
     def litellm_model(self) -> str:
-        known_prefixes = (
-            "openai/", "anthropic/", "azure/", "qwen/", "deepseek/",
-            "minimax/", "together_ai/", "bedrock/", "vertex_ai/",
-            "groq/", "mistral/", "cohere/", "huggingface/", "ollama/",
-        )
-        if any(self.model.startswith(p) for p in known_prefixes):
+        # If the model already names a provider (contains "/"), pass it through
+        # untouched and let LiteLLM route it (openai/, anthropic/, gemini/,
+        # qwen/, deepseek/, together_ai/, vertex_ai/, xai/, openrouter/ …).
+        # Only bare legacy names with no provider prefix (e.g. "MiniMax-M1",
+        # "gpt-4o") are treated as OpenAI-compatible. This avoids mis-routing
+        # gemini/… → openai/gemini/… (a 404 against the wrong endpoint).
+        if "/" in self.model:
             return self.model
-        # Legacy bare names (e.g. "MiniMax-M1") → treat as OpenAI-compat relay.
         return f"openai/{self.model}"
 
 
@@ -176,7 +177,12 @@ def _cache_key(messages: list[dict[str, str]], config: ProviderConfig) -> str:
     else:
         ident = f"litellm::{config.litellm_model}::{config.api_base}"
     payload = json.dumps(
-        {"provider": ident, "messages": messages},
+        {
+            "provider": ident,
+            "temperature": getattr(config, "temperature", None),
+            "json_mode": True,
+            "messages": messages,
+        },
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -225,6 +231,11 @@ def _litellm_call(
             f"No API key found for provider {type(config).__name__}. "
             "Set LLM_API_KEY, AZURE_API_KEY, or the relevant provider env var."
         )
+    if isinstance(config, AzureConfig) and not config.api_base:
+        raise RuntimeError(
+            "Azure provider requires an endpoint. Set AZURE_API_BASE "
+            "(or AZURE_OPENAI_ENDPOINT), e.g. https://<resource>.openai.azure.com/"
+        )
     litellm = importlib.import_module("litellm")
     kwargs: dict[str, Any] = dict(
         model=config.litellm_model,
@@ -247,7 +258,8 @@ def _litellm_call(
             return response["choices"][0]["message"]["content"]
         except Exception as exc:
             last_error = exc
-            time.sleep(2 ** attempt)
+            if attempt < config.retries - 1:
+                time.sleep(2 ** attempt)
     raise RuntimeError(
         f"LiteLLM call failed after {config.retries} attempts: {last_error}"
     )
@@ -268,38 +280,48 @@ def _poe_call(messages: list[dict[str, str]], config: PoeConfig) -> str:
             "Get yours at https://poe.com/api_key"
         )
     fp = importlib.import_module("fastapi_poe")
+    # Forward temperature only if this fastapi-poe version accepts it.
+    import inspect
+    try:
+        _supports_temp = "temperature" in inspect.signature(fp.get_bot_response).parameters
+    except (TypeError, ValueError):
+        _supports_temp = False
 
     async def _async_call() -> str:
         poe_messages = [
             fp.ProtocolMessage(role=m["role"], content=m["content"])
             for m in messages
         ]
+        kwargs: dict[str, Any] = dict(
+            messages=poe_messages, bot_name=config.bot_name, api_key=config.api_key
+        )
+        if _supports_temp:
+            kwargs["temperature"] = config.temperature
         text = ""
-        async for chunk in fp.get_bot_response(
-            messages=poe_messages,
-            bot_name=config.bot_name,
-            api_key=config.api_key,
-        ):
+        async for chunk in fp.get_bot_response(**kwargs):
             if hasattr(chunk, "text"):
                 text += chunk.text
         return text
 
+    def _run() -> str:
+        # If a loop is already running (e.g. inside a notebook/async host), run
+        # in a separate thread with its own loop; otherwise drive a fresh loop.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_async_call())
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, _async_call()).result(timeout=config.timeout)
+
     last_error: Exception | None = None
     for attempt in range(config.retries):
         try:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        future = pool.submit(asyncio.run, _async_call())
-                        return future.result(timeout=config.timeout)
-            except RuntimeError:
-                pass
-            return asyncio.run(_async_call())
+            return _run()
         except Exception as exc:
             last_error = exc
-            time.sleep(2 ** attempt)
+            if attempt < config.retries - 1:
+                time.sleep(2 ** attempt)
     raise RuntimeError(
         f"Poe call failed after {config.retries} attempts: {last_error}"
     )
@@ -339,38 +361,75 @@ def completion_json(
     if cache_path.exists():
         return json.loads(cache_path.read_text(encoding="utf-8"))
 
-    last_error: Exception | None = None
-    retries = cfg.retries
-    for attempt in range(retries):
-        try:
-            if isinstance(cfg, PoeConfig):
-                raw = _poe_call(messages, cfg)
+    # Network retries are owned by the single inner layer (_litellm_call /
+    # _poe_call); we call them once here to avoid retries² amplification.
+    try:
+        if isinstance(cfg, PoeConfig):
+            raw = _poe_call(messages, cfg)
+            result = _extract_json(raw)
+        else:
+            raw = _litellm_call(messages, cfg, json_mode=True)
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                # Some providers ignore response_format; fall back to extraction.
                 result = _extract_json(raw)
-            else:
-                try:
-                    raw = _litellm_call(messages, cfg, json_mode=True)
-                    result = json.loads(raw)
-                except json.JSONDecodeError:
-                    # Some providers ignore response_format; fall back to extraction.
-                    result = _extract_json(raw)
-            if not isinstance(result, dict):
-                raise ValueError("LLM response must be a JSON object")
-            cache_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-            return result
-        except Exception as exc:
-            last_error = exc
-            time.sleep(2 ** attempt)
-    raise RuntimeError(
-        f"completion_json failed after {retries} attempts: {last_error}"
-    )
+        if not isinstance(result, dict):
+            raise ValueError("LLM response must be a JSON object")
+    except Exception as exc:
+        raise RuntimeError(f"completion_json failed: {exc}") from exc
+    cache_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fact-guard (shared with generation pipeline)
 # ──────────────────────────────────────────────────────────────────────────────
 
+# 15 法定文种 — a doc-type swap (通知→通告, 请示→报告 …) carries no digit, so the
+# numeric FACT_PATTERN cannot see it; we track these names explicitly.
+_DOC_TYPE_NAMES = (
+    "决议", "决定", "命令", "公报", "公告", "通告", "意见", "通知", "通报",
+    "报告", "请示", "批复", "议案", "函", "纪要",
+)
+
+_AGENCY_CODES_CACHE: set[str] | None = None
+
+
+def _agency_codes() -> set[str]:
+    """Closed set of 机关代字 (示政发, 示市府发 …) loaded from agency_metadata.csv.
+
+    These are pure-Chinese tokens with no digits, so the numeric FACT_PATTERN
+    misses them; an LLM rewrite could swap one agency's 代字 for another's
+    undetected. We treat the known set as facts that must be preserved.
+    """
+    global _AGENCY_CODES_CACHE
+    if _AGENCY_CODES_CACHE is None:
+        codes: set[str] = set()
+        meta = Path(__file__).resolve().parent.parent / "agency_metadata.csv"
+        try:
+            import csv
+            with meta.open(encoding="utf-8") as fh:
+                for row in csv.DictReader(fh):
+                    code = (row.get("agency_code") or "").strip()
+                    if code:
+                        codes.add(code)
+        except Exception:
+            pass
+        _AGENCY_CODES_CACHE = codes
+    return _AGENCY_CODES_CACHE
+
+
 def facts(text: str) -> set[str]:
-    return set(FACT_PATTERN.findall(text))
+    """Fact tokens that any rewrite must preserve verbatim.
+
+    Combines the numeric/coded regex matches with two closed Chinese
+    vocabularies the regex cannot capture: 机关代字 and 文种 names.
+    """
+    found = set(FACT_PATTERN.findall(text))
+    found |= {code for code in _agency_codes() if code and code in text}
+    found |= {name for name in _DOC_TYPE_NAMES if name in text}
+    return found
 
 
 def fact_guard(source: str, candidate: str) -> bool:
