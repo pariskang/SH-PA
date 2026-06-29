@@ -236,12 +236,15 @@ def evaluate_dataset1(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Run Dataset 1 (Q) and return predictions JSONL rows.
 
     Supports resume: questions already present in the output file are skipped.
     """
     questions = _read_jsonl(DATASET1 / "questions_public.jsonl")
+    if limit:
+        questions = questions[:limit]
     hidden_rows = _read_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl")
     # O(1) lookup: question text → question_id (handles public files without IDs).
     _text_to_qid: dict[str, str] = {
@@ -302,12 +305,15 @@ def evaluate_dataset2(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Run Dataset 2 (DataQA) with record context and return predictions.
 
     Supports resume: questions already present in the output file are skipped.
     """
     questions = _read_jsonl(DATASET2 / "questions.jsonl")
+    if limit:
+        questions = questions[:limit]
     records = _load_records_csv(DATASET2 / "records.csv")
 
     out_path = output_dir / "pred_dataset2_dataqa.jsonl"
@@ -356,12 +362,15 @@ def evaluate_dataset3(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Run Dataset 3 (Writing) and return predictions with document text.
 
     Supports resume: questions already present in the output file are skipped.
     """
     prompts = _read_jsonl(DATASET3 / "writing_prompts_public.jsonl")
+    if limit:
+        prompts = prompts[:limit]
 
     out_path = output_dir / "pred_dataset3_writing.jsonl"
     done: dict[str, dict[str, Any]] = {
@@ -396,12 +405,15 @@ def evaluate_dataset4_audit(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Run Dataset 4 (Audit – find violations) and return predictions.
 
     Supports resume: questions already present in the output file are skipped.
     """
     tasks = _read_jsonl(DATASET4 / "audit_tasks_public.jsonl")
+    if limit:
+        tasks = tasks[:limit]
 
     out_path = output_dir / "pred_dataset4_audit.jsonl"
     done: dict[str, dict[str, Any]] = {
@@ -439,12 +451,15 @@ def evaluate_dataset4_rewrite(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Run Dataset 4 (Audit – rewrite/correct flawed document).
 
     Supports resume: questions already present in the output file are skipped.
     """
     tasks = _read_jsonl(DATASET4 / "audit_tasks_public.jsonl")
+    if limit:
+        tasks = tasks[:limit]
 
     out_path = output_dir / "pred_dataset4_rewrite.jsonl"
     done: dict[str, dict[str, Any]] = {
@@ -678,6 +693,7 @@ def run_model(
     datasets: list[str],
     base_output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
 ) -> None:
     """Evaluate one model on the specified datasets."""
     safe_name = spec.name.replace("/", "-").replace(":", "-").replace(" ", "_")
@@ -701,23 +717,23 @@ def run_model(
 
     if do_all or "q" in datasets:
         print(f"  Dataset 1 (Q) …", file=sys.stderr)
-        evaluate_dataset1(config, model_dir, verbose=verbose)
+        evaluate_dataset1(config, model_dir, verbose=verbose, limit=limit)
 
     if do_all or "dataqa" in datasets:
         print(f"  Dataset 2 (DataQA) …", file=sys.stderr)
-        evaluate_dataset2(config, model_dir, verbose=verbose)
+        evaluate_dataset2(config, model_dir, verbose=verbose, limit=limit)
 
     if do_all or "writing" in datasets:
         print(f"  Dataset 3 (Writing) …", file=sys.stderr)
-        evaluate_dataset3(config, model_dir, verbose=verbose)
+        evaluate_dataset3(config, model_dir, verbose=verbose, limit=limit)
 
     if do_all or "audit" in datasets:
         print(f"  Dataset 4 (Audit) …", file=sys.stderr)
-        evaluate_dataset4_audit(config, model_dir, verbose=verbose)
+        evaluate_dataset4_audit(config, model_dir, verbose=verbose, limit=limit)
 
     if do_all or "rewrite" in datasets:
         print(f"  Dataset 4 (Rewrite) …", file=sys.stderr)
-        evaluate_dataset4_rewrite(config, model_dir, verbose=verbose)
+        evaluate_dataset4_rewrite(config, model_dir, verbose=verbose, limit=limit)
 
     print(f"[{spec.name}] Done → {model_dir}", file=sys.stderr)
 
@@ -778,6 +794,8 @@ def main() -> None:
 
     parser.add_argument("--leaderboard-only", action="store_true",
                         help="Skip evaluation; only compile leaderboard from existing predictions")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Evaluate only the first N items per dataset (smoke test / cost control)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Print per-question warnings to stderr")
 
@@ -807,7 +825,7 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for spec in specs:
-        run_model(spec, datasets, args.output_dir, verbose=args.verbose)
+        run_model(spec, datasets, args.output_dir, verbose=args.verbose, limit=args.limit)
 
     if len(specs) > 1:
         print("\nCompiling leaderboard …", file=sys.stderr)
