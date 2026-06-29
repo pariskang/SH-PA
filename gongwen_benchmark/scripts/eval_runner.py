@@ -85,8 +85,6 @@ DATASET3 = ROOT / "dataset_3_writing"
 DATASET4 = ROOT / "dataset_4_audit"
 EVALUATION = ROOT / "evaluation"
 
-# Maximum records to include in a DataQA context window (mirrors EV_CAP in generator).
-_CONTEXT_ROW_CAP = 40
 # Delay between API calls to avoid rate limits (seconds).
 _CALL_DELAY = float(os.getenv("CN_GW_EVAL_DELAY", "1.0"))
 # Bootstrap resampling iterations for CI.
@@ -125,16 +123,19 @@ def _load_records_csv(path: Path) -> list[dict[str, str]]:
 def _scope_records(
     records: list[dict[str, str]], required_scope: str
 ) -> list[dict[str, str]]:
-    """Filter records to the date/range given by required_scope."""
+    """Filter records to the date/range given by required_scope.
+
+    Returns ALL matching records — the model's context window is the natural limit.
+    EV_CAP (40) in the generator caps *gold evidence labels*, not LLM input context.
+    """
     if not required_scope:
-        return records[:_CONTEXT_ROW_CAP]
+        # No scope means the question spans the whole dataset — return everything.
+        return records
     if "~" in required_scope:
         start, end = required_scope.split("~", 1)
-        filtered = [r for r in records if start <= r.get("issue_date", "") <= end]
-    else:
-        date = required_scope.strip()
-        filtered = [r for r in records if r.get("issue_date", "") == date]
-    return filtered[:_CONTEXT_ROW_CAP]
+        return [r for r in records if start <= r.get("issue_date", "") <= end]
+    date = required_scope.strip()
+    return [r for r in records if r.get("issue_date", "") == date]
 
 
 def _records_to_table(rows: list[dict[str, str]]) -> str:
@@ -236,49 +237,64 @@ def evaluate_dataset1(
     output_dir: Path,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
-    """Run Dataset 1 (Q) and return predictions JSONL rows."""
+    """Run Dataset 1 (Q) and return predictions JSONL rows.
+
+    Supports resume: questions already present in the output file are skipped.
+    """
     questions = _read_jsonl(DATASET1 / "questions_public.jsonl")
-    hidden = {
-        r["question_id"]: r
-        for r in _read_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl")
+    hidden_rows = _read_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl")
+    # O(1) lookup: question text → question_id (handles public files without IDs).
+    _text_to_qid: dict[str, str] = {
+        r.get("question", ""): r["question_id"]
+        for r in hidden_rows
+        if r.get("question_id")
     }
+
+    out_path = output_dir / "pred_dataset1_q.jsonl"
+    # Load already-completed predictions for resume support.
+    done: dict[str, dict[str, Any]] = {
+        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+    }
+
     predictions: list[dict[str, Any]] = []
-    for i, row in enumerate(questions):
-        qid = hidden.get(row.get("question_id", f"Q_ONLY_{i+1:06d}"), {}).get(
-            "question_id", f"Q_ONLY_{i+1:06d}"
-        )
-        # Tolerate public file that lacks question_id.
-        for meta_row in hidden.values():
-            if meta_row.get("question") == row.get("question"):
-                qid = meta_row["question_id"]
-                break
-        messages = _build_q_messages(row["question"])
-        try:
-            result = completion_json(messages, config)
-            pred = {
-                "question_id": qid,
-                "target_doc_type": result.get("target_doc_type", ""),
-                "expected_query_type": result.get("expected_query_type", ""),
-                "requires_clarification": bool(result.get("requires_clarification", False)),
-                "should_refuse": bool(result.get("should_refuse", False)),
-                "expected_slots": result.get("expected_slots", {}),
-            }
-        except Exception as exc:
-            if verbose:
-                print(f"  [warn] {qid}: {exc}", file=sys.stderr)
-            pred = {
-                "question_id": qid,
-                "target_doc_type": "",
-                "expected_query_type": "",
-                "requires_clarification": False,
-                "should_refuse": False,
-                "expected_slots": {},
-            }
-        predictions.append(pred)
-        if verbose and (i + 1) % 50 == 0:
-            print(f"  Q: {i+1}/{len(questions)}", file=sys.stderr)
-        time.sleep(_CALL_DELAY)
-    _write_jsonl(output_dir / "pred_dataset1_q.jsonl", predictions)
+    with out_path.open("a", encoding="utf-8") as fh_out:
+        for i, row in enumerate(questions):
+            qid = (
+                row.get("question_id")
+                or _text_to_qid.get(row.get("question", ""))
+                or f"Q_ONLY_{i+1:06d}"
+            )
+            if qid in done:
+                predictions.append(done[qid])
+                continue
+            messages = _build_q_messages(row["question"])
+            try:
+                result = completion_json(messages, config)
+                pred = {
+                    "question_id": qid,
+                    "target_doc_type": result.get("target_doc_type", ""),
+                    "expected_query_type": result.get("expected_query_type", ""),
+                    "requires_clarification": bool(result.get("requires_clarification", False)),
+                    "should_refuse": bool(result.get("should_refuse", False)),
+                    "expected_slots": result.get("expected_slots", {}),
+                }
+            except Exception as exc:
+                if verbose:
+                    print(f"  [warn] {qid}: {exc}", file=sys.stderr)
+                pred = {
+                    "question_id": qid,
+                    "target_doc_type": "",
+                    "expected_query_type": "",
+                    "requires_clarification": False,
+                    "should_refuse": False,
+                    "expected_slots": {},
+                }
+            predictions.append(pred)
+            fh_out.write(json.dumps(pred, ensure_ascii=False, separators=(",", ":")) + "\n")
+            fh_out.flush()
+            if verbose and (i + 1) % 50 == 0:
+                print(f"  Q: {i+1}/{len(questions)}", file=sys.stderr)
+            time.sleep(_CALL_DELAY)
     return predictions
 
 
@@ -287,38 +303,52 @@ def evaluate_dataset2(
     output_dir: Path,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
-    """Run Dataset 2 (DataQA) with record context and return predictions."""
+    """Run Dataset 2 (DataQA) with record context and return predictions.
+
+    Supports resume: questions already present in the output file are skipped.
+    """
     questions = _read_jsonl(DATASET2 / "questions.jsonl")
     records = _load_records_csv(DATASET2 / "records.csv")
+
+    out_path = output_dir / "pred_dataset2_dataqa.jsonl"
+    done: dict[str, dict[str, Any]] = {
+        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+    }
+
     predictions: list[dict[str, Any]] = []
-    for i, row in enumerate(questions):
-        qid = row["question_id"]
-        scope = row.get("required_scope", "")
-        context_rows = _scope_records(records, scope)
-        context_table = _records_to_table(context_rows)
-        messages = _build_dataqa_messages(row["question"], context_table)
-        try:
-            result = completion_json(messages, config)
-            pred = {
-                "question_id": qid,
-                "answer_value": result.get("answer_value"),
-                "evidence_rows": result.get("evidence_rows", []),
-                "final_answer": result.get("final_answer", ""),
-            }
-        except Exception as exc:
-            if verbose:
-                print(f"  [warn] {qid}: {exc}", file=sys.stderr)
-            pred = {
-                "question_id": qid,
-                "answer_value": None,
-                "evidence_rows": [],
-                "final_answer": "",
-            }
-        predictions.append(pred)
-        if verbose and (i + 1) % 100 == 0:
-            print(f"  DataQA: {i+1}/{len(questions)}", file=sys.stderr)
-        time.sleep(_CALL_DELAY)
-    _write_jsonl(output_dir / "pred_dataset2_dataqa.jsonl", predictions)
+    with out_path.open("a", encoding="utf-8") as fh_out:
+        for i, row in enumerate(questions):
+            qid = row["question_id"]
+            if qid in done:
+                predictions.append(done[qid])
+                continue
+            scope = row.get("required_scope", "")
+            context_rows = _scope_records(records, scope)
+            context_table = _records_to_table(context_rows)
+            messages = _build_dataqa_messages(row["question"], context_table)
+            try:
+                result = completion_json(messages, config)
+                pred = {
+                    "question_id": qid,
+                    "answer_value": result.get("answer_value"),
+                    "evidence_rows": result.get("evidence_rows", []),
+                    "final_answer": result.get("final_answer", ""),
+                }
+            except Exception as exc:
+                if verbose:
+                    print(f"  [warn] {qid}: {exc}", file=sys.stderr)
+                pred = {
+                    "question_id": qid,
+                    "answer_value": None,
+                    "evidence_rows": [],
+                    "final_answer": "",
+                }
+            predictions.append(pred)
+            fh_out.write(json.dumps(pred, ensure_ascii=False, separators=(",", ":")) + "\n")
+            fh_out.flush()
+            if verbose and (i + 1) % 100 == 0:
+                print(f"  DataQA: {i+1}/{len(questions)}", file=sys.stderr)
+            time.sleep(_CALL_DELAY)
     return predictions
 
 
@@ -327,24 +357,38 @@ def evaluate_dataset3(
     output_dir: Path,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
-    """Run Dataset 3 (Writing) and return predictions with document text."""
+    """Run Dataset 3 (Writing) and return predictions with document text.
+
+    Supports resume: questions already present in the output file are skipped.
+    """
     prompts = _read_jsonl(DATASET3 / "writing_prompts_public.jsonl")
+
+    out_path = output_dir / "pred_dataset3_writing.jsonl"
+    done: dict[str, dict[str, Any]] = {
+        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+    }
+
     predictions: list[dict[str, Any]] = []
-    for i, row in enumerate(prompts):
-        qid = row["question_id"]
-        messages = _build_writing_messages(row["prompt"])
-        try:
-            text = completion_text(messages, config)
-            pred = {"question_id": qid, "answer": text.strip()}
-        except Exception as exc:
-            if verbose:
-                print(f"  [warn] {qid}: {exc}", file=sys.stderr)
-            pred = {"question_id": qid, "answer": ""}
-        predictions.append(pred)
-        if verbose and (i + 1) % 20 == 0:
-            print(f"  Writing: {i+1}/{len(prompts)}", file=sys.stderr)
-        time.sleep(_CALL_DELAY)
-    _write_jsonl(output_dir / "pred_dataset3_writing.jsonl", predictions)
+    with out_path.open("a", encoding="utf-8") as fh_out:
+        for i, row in enumerate(prompts):
+            qid = row["question_id"]
+            if qid in done:
+                predictions.append(done[qid])
+                continue
+            messages = _build_writing_messages(row["prompt"])
+            try:
+                text = completion_text(messages, config)
+                pred = {"question_id": qid, "answer": text.strip()}
+            except Exception as exc:
+                if verbose:
+                    print(f"  [warn] {qid}: {exc}", file=sys.stderr)
+                pred = {"question_id": qid, "answer": ""}
+            predictions.append(pred)
+            fh_out.write(json.dumps(pred, ensure_ascii=False, separators=(",", ":")) + "\n")
+            fh_out.flush()
+            if verbose and (i + 1) % 20 == 0:
+                print(f"  Writing: {i+1}/{len(prompts)}", file=sys.stderr)
+            time.sleep(_CALL_DELAY)
     return predictions
 
 
@@ -353,27 +397,41 @@ def evaluate_dataset4_audit(
     output_dir: Path,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
-    """Run Dataset 4 (Audit – find violations) and return predictions."""
+    """Run Dataset 4 (Audit – find violations) and return predictions.
+
+    Supports resume: questions already present in the output file are skipped.
+    """
     tasks = _read_jsonl(DATASET4 / "audit_tasks_public.jsonl")
+
+    out_path = output_dir / "pred_dataset4_audit.jsonl"
+    done: dict[str, dict[str, Any]] = {
+        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+    }
+
     predictions: list[dict[str, Any]] = []
-    for i, row in enumerate(tasks):
-        qid = row["question_id"]
-        messages = _build_audit_messages(row["prompt"])
-        try:
-            result = completion_json(messages, config)
-            violations = result.get("violations", [])
-            if not isinstance(violations, list):
-                violations = []
-            pred = {"question_id": qid, "violations": violations}
-        except Exception as exc:
-            if verbose:
-                print(f"  [warn] {qid}: {exc}", file=sys.stderr)
-            pred = {"question_id": qid, "violations": []}
-        predictions.append(pred)
-        if verbose and (i + 1) % 30 == 0:
-            print(f"  Audit: {i+1}/{len(tasks)}", file=sys.stderr)
-        time.sleep(_CALL_DELAY)
-    _write_jsonl(output_dir / "pred_dataset4_audit.jsonl", predictions)
+    with out_path.open("a", encoding="utf-8") as fh_out:
+        for i, row in enumerate(tasks):
+            qid = row["question_id"]
+            if qid in done:
+                predictions.append(done[qid])
+                continue
+            messages = _build_audit_messages(row["prompt"])
+            try:
+                result = completion_json(messages, config)
+                violations = result.get("violations", [])
+                if not isinstance(violations, list):
+                    violations = []
+                pred = {"question_id": qid, "violations": violations}
+            except Exception as exc:
+                if verbose:
+                    print(f"  [warn] {qid}: {exc}", file=sys.stderr)
+                pred = {"question_id": qid, "violations": []}
+            predictions.append(pred)
+            fh_out.write(json.dumps(pred, ensure_ascii=False, separators=(",", ":")) + "\n")
+            fh_out.flush()
+            if verbose and (i + 1) % 30 == 0:
+                print(f"  Audit: {i+1}/{len(tasks)}", file=sys.stderr)
+            time.sleep(_CALL_DELAY)
     return predictions
 
 
@@ -382,27 +440,41 @@ def evaluate_dataset4_rewrite(
     output_dir: Path,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
-    """Run Dataset 4 (Audit – rewrite/correct flawed document)."""
+    """Run Dataset 4 (Audit – rewrite/correct flawed document).
+
+    Supports resume: questions already present in the output file are skipped.
+    """
     tasks = _read_jsonl(DATASET4 / "audit_tasks_public.jsonl")
+
+    out_path = output_dir / "pred_dataset4_rewrite.jsonl"
+    done: dict[str, dict[str, Any]] = {
+        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+    }
+
     predictions: list[dict[str, Any]] = []
-    for i, row in enumerate(tasks):
-        qid = row["question_id"]
-        rewrite_prompt = row.get("rewrite_prompt", "")
-        if not rewrite_prompt:
-            continue
-        messages = _build_writing_messages(rewrite_prompt)
-        try:
-            text = completion_text(messages, config)
-            pred = {"question_id": qid, "rewrite": text.strip()}
-        except Exception as exc:
-            if verbose:
-                print(f"  [warn] {qid}: {exc}", file=sys.stderr)
-            pred = {"question_id": qid, "rewrite": ""}
-        predictions.append(pred)
-        if verbose and (i + 1) % 30 == 0:
-            print(f"  Rewrite: {i+1}/{len(tasks)}", file=sys.stderr)
-        time.sleep(_CALL_DELAY)
-    _write_jsonl(output_dir / "pred_dataset4_rewrite.jsonl", predictions)
+    with out_path.open("a", encoding="utf-8") as fh_out:
+        for i, row in enumerate(tasks):
+            qid = row["question_id"]
+            rewrite_prompt = row.get("rewrite_prompt", "")
+            if not rewrite_prompt:
+                continue
+            if qid in done:
+                predictions.append(done[qid])
+                continue
+            messages = _build_writing_messages(rewrite_prompt)
+            try:
+                text = completion_text(messages, config)
+                pred = {"question_id": qid, "rewrite": text.strip()}
+            except Exception as exc:
+                if verbose:
+                    print(f"  [warn] {qid}: {exc}", file=sys.stderr)
+                pred = {"question_id": qid, "rewrite": ""}
+            predictions.append(pred)
+            fh_out.write(json.dumps(pred, ensure_ascii=False, separators=(",", ":")) + "\n")
+            fh_out.flush()
+            if verbose and (i + 1) % 30 == 0:
+                print(f"  Rewrite: {i+1}/{len(tasks)}", file=sys.stderr)
+            time.sleep(_CALL_DELAY)
     return predictions
 
 

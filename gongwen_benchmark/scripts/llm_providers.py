@@ -195,8 +195,11 @@ def _extract_json(text: str) -> dict[str, Any]:
     # Find the first {...} span.
     start = candidate.find("{")
     end = candidate.rfind("}")
-    if start != -1 and end != -1:
-        candidate = candidate[start : end + 1]
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(
+            f"No JSON object found in LLM response: {candidate[:200]!r}"
+        )
+    candidate = candidate[start : end + 1]
     result = json.loads(candidate)
     if not isinstance(result, dict):
         raise ValueError("LLM response must be a JSON object")
