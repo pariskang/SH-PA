@@ -85,18 +85,30 @@ python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard
 | `mini` | 5 | 2 | 快速冒烟 |
 | `standard` | 37 | 8 | 提交的代表性基准 |
 | `full` | 37 | 30 | 生产规模本地生成 |
+| `xl` | 37 | 90 | **6000 题大规模**（Q2000+DataQA3000+Writing500+Audit500，约 5.4 万条语料） |
+
+各数据集题量可用 CLI 覆盖（凑足任意规模）：
 
 ```bash
-python gongwen_benchmark/scripts/generate_benchmarks.py --profile full --q-count 1000 --dataqa-questions 3000
+# 6000 题大规模档
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile xl
+# 或自定义各数据集题量
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile full \
+  --q-count 1500 --dataqa-questions 3000 --writing-count 750 --audit-count 750
 ```
 
-## 用 LLM 改写并"冻结"（可选，覆盖三套数据集的表层文本）
+## 由 LLM 生成测试题目并"冻结"（可选）
 
-`--use-llm` 仅在**事实护栏**下改写**表层文本**——CN-GongWen-Q 的**问题措辞**、CN-GongWen-DataQA 的
-**播报语言**、CN-GongWen-Writing 的**测试 prompt**；文种、字号、日期、密级、数值、排序、合规判定，
-以及写作 rubric / 参考公文、审核金标准，**始终由 Python 确定性计算**。LLM 调用带磁盘缓存与重试，
-**单条失败自动回退确定性模板**（冻结流程不中断）；未配密钥时启用会**提前明确报错**。运行后 `git add`
-提交即"**冻结**"这批 LLM 产物；无 `--use-llm` 的逐字节复现仍以确定性基线为准。
+`--use-llm` 在**事实护栏**下由 LLM **生成/改写测试题目的表层文本**——CN-GongWen-Q 的**问题**、
+CN-GongWen-DataQA 的**问题与播报语言**、CN-GongWen-Writing 的**测试 prompt**（CN-GongWen-Audit 的
+含缺陷公文为确定性注入、金标准由独立检测器检出，**不经 LLM** 以保证 honesty）。文种、字号、日期、
+密级、数值、排序、合规判定，以及写作 rubric / 参考公文、审核金标准，**始终由 Python 确定性计算**，
+故金标准不受影响。
+
+每道题带唯一 `variant_id`，**同一模板的多份题目会被改写成彼此不同的自然措辞**——这正是把大规模档
+（`xl`=6000）扩充为大量**各不相同**测试样本的方式（确定性基线为可复现骨架，题面多样性由 LLM 提供）。
+LLM 调用带磁盘缓存与重试，**单条失败自动回退确定性模板**（流程不中断）；未配密钥时启用会**提前明确报错**。
+运行后 `git add` 提交即"**冻结**"这批 LLM 产物；无 `--use-llm` 的逐字节复现仍以确定性基线为准。
 
 三种 provider 任选其一（`--use-litellm` 为兼容旧用法的别名）：
 

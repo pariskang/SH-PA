@@ -103,21 +103,34 @@ python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard
 | `mini` | 5 | 2 | quick smoke test |
 | `standard` | 37 | 8 | representative committed benchmark |
 | `full` | 37 | 30 | production-scale local generation |
+| `xl` | 37 | 90 | **6000 questions** (Q2000+DataQA3000+Writing500+Audit500, ~54k records) |
+
+Per-dataset counts are CLI-overridable to hit any size:
 
 ```bash
-python gongwen_benchmark/scripts/generate_benchmarks.py --profile full --q-count 1000 --dataqa-questions 3000
+# 6000-question profile
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile xl
+# or set each dataset's count
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile full \
+  --q-count 1500 --dataqa-questions 3000 --writing-count 750 --audit-count 750
 ```
 
-## LLM rewrite-and-"freeze" (optional; surface text of three datasets)
+## LLM-generate the test questions, then "freeze" (optional)
 
-`--use-llm` rewrites only **surface text** under **fact guards** — the **question wording** of
-CN-GongWen-Q, the **briefing language** of CN-GongWen-DataQA, and the **test prompts** of
-CN-GongWen-Writing. Document types, serial numbers, dates, security levels, figures, ordering,
-compliance judgments, plus writing rubrics / reference answers / audit gold are **always computed
-deterministically by Python**. LLM calls are disk-cached and retried, and **fall back to the
-deterministic template on any single failure**; enabling it without a key **fails fast**. After a
-run, `git add` "**freezes**" those artifacts; byte-identical reproduction without `--use-llm` still
-uses the deterministic baseline.
+`--use-llm` has the LLM **author/rewrite the surface text of the test questions** under **fact
+guards** — the **questions** of CN-GongWen-Q, the **questions and briefing language** of
+CN-GongWen-DataQA, and the **test prompts** of CN-GongWen-Writing (CN-GongWen-Audit's flawed
+documents are deterministically injected and gold comes from an independent detector, so they are
+**not** sent to an LLM — preserving honesty). Document types, serial numbers, dates, security
+levels, figures, ordering, compliance judgments, plus writing rubrics / reference answers / audit
+gold are **always computed deterministically by Python**, so gold is unaffected.
+
+Each question carries a unique `variant_id`, so **repeated templates are rephrased into distinct,
+natural surface forms** — this is how the large `xl` (6000) profile expands into many *distinct*
+test items (the deterministic baseline is a reproducible skeleton; the LLM supplies question-text
+diversity). LLM calls are disk-cached and retried, **fall back to the deterministic template on any
+single failure**, and enabling without a key **fails fast**. After a run, `git add` "**freezes**"
+those artifacts; byte-identical reproduction without `--use-llm` still uses the deterministic baseline.
 
 Pick any one provider (`--use-litellm` is a backward-compatible alias):
 
