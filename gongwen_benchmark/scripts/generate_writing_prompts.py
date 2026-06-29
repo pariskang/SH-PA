@@ -200,36 +200,44 @@ def _combinations() -> list[tuple[Any, str, bool]]:
     return combos
 
 
+def _make_spec(dt, length: str, medical: bool, i: int, agencies, by_code) -> WritingSpec:
+    """Build one deterministic WritingSpec for (文种, 长度, 医疗) at global index i.
+
+    Factored out so other generators (e.g. the audit set) can compose a custom
+    文种 distribution while reusing the exact, byte-identical spec logic.
+    """
+    direction = dt.direction if dt.direction != "flexible" else "downward"
+    if medical:
+        area = MEDICAL_AREAS[hashed("war", i) % len(MEDICAL_AREAS)]
+        topic = area.topics[hashed("wtp", i) % len(area.topics)]
+        subject = pick(ACTION_VERBS, "wv", i) + topic
+        pd, ma, mt = "医疗卫生", area.name, topic
+    else:
+        subject = SUBJECTS[hashed("wsj", i) % len(SUBJECTS)]
+        pd, ma, mt = "通用政务", "", ""
+    ag = _agency_for(dt.name, medical, ma, agencies, by_code, i)
+    security = "公开" if dt.category == "公布性" else ("秘密" if hashed("wsec", i) % 6 == 0 else "公开")
+    urgency = ("平件", "平件", "加急", "特急")[hashed("wurg", i) % 4]
+    recipient = _recipient(direction, dt.name, ag["agency_level"])
+    return WritingSpec(
+        spec_id=f"WP_{i + 1:06d}", doc_type=dt.name, doc_type_code=dt.code, category=dt.category,
+        direction=direction, needs_signatory=dt.needs_signatory, single_recipient=dt.single_recipient,
+        policy_domain=pd, medical_area=ma, medical_topic=mt, subject=subject,
+        agency=ag["agency_name"], agency_code=ag["agency_code"], agency_level=ag["agency_level"],
+        recipient=recipient, length=length, security=security, urgency=urgency,
+        has_attachment=(length in ("medium", "long") and hashed("watt", i) % 2 == 0),
+        has_cc=(direction != "upward" and length in ("medium", "long") and hashed("wcc", i) % 2 == 0),
+    )
+
+
 def build_writing_specs(count: int) -> list[WritingSpec]:
     agencies = agency_metadata(37)
     by_code = {a["agency_code"]: a for a in agencies}
     combos = _combinations()
-    specs: list[WritingSpec] = []
-    for i in range(count):
-        dt, length, medical = combos[i % len(combos)]
-        direction = dt.direction if dt.direction != "flexible" else "downward"
-        if medical:
-            area = MEDICAL_AREAS[hashed("war", i) % len(MEDICAL_AREAS)]
-            topic = area.topics[hashed("wtp", i) % len(area.topics)]
-            subject = pick(ACTION_VERBS, "wv", i) + topic
-            pd, ma, mt = "医疗卫生", area.name, topic
-        else:
-            subject = SUBJECTS[hashed("wsj", i) % len(SUBJECTS)]
-            pd, ma, mt = "通用政务", "", ""
-        ag = _agency_for(dt.name, medical, ma, agencies, by_code, i)
-        security = "公开" if dt.category == "公布性" else ("秘密" if hashed("wsec", i) % 6 == 0 else "公开")
-        urgency = ("平件", "平件", "加急", "特急")[hashed("wurg", i) % 4]
-        recipient = _recipient(direction, dt.name, ag["agency_level"])
-        specs.append(WritingSpec(
-            spec_id=f"WP_{i + 1:06d}", doc_type=dt.name, doc_type_code=dt.code, category=dt.category,
-            direction=direction, needs_signatory=dt.needs_signatory, single_recipient=dt.single_recipient,
-            policy_domain=pd, medical_area=ma, medical_topic=mt, subject=subject,
-            agency=ag["agency_name"], agency_code=ag["agency_code"], agency_level=ag["agency_level"],
-            recipient=recipient, length=length, security=security, urgency=urgency,
-            has_attachment=(length in ("medium", "long") and hashed("watt", i) % 2 == 0),
-            has_cc=(direction != "upward" and length in ("medium", "long") and hashed("wcc", i) % 2 == 0),
-        ))
-    return specs
+    return [
+        _make_spec(*combos[i % len(combos)], i, agencies, by_code)
+        for i in range(count)
+    ]
 
 
 # --------------------------------------------------------------------------------------

@@ -229,6 +229,19 @@ def test_audit_covers_medical_violations():
         assert cov[med] > 0, f"medical violation {med} not covered"
 
 
+def test_audit_every_violation_type_is_well_sampled():
+    """Each of the 16 violation types must have an adequate sample size for a
+    stable per-type precision/recall — including the doc-type-constrained ones
+    (qingshi_multihead, baogao_embeds_request) that were previously starved."""
+    import collections
+    from gongwen_benchmark.scripts.generate_audit_tasks import VIOLATION_CODES
+    hidden = [json.loads(l) for l in (ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl").open(encoding="utf-8")]
+    cov = collections.Counter(v for h in hidden for v in h["violations"])
+    FLOOR = 8  # standard profile targets 10/type; assert a safe lower bound
+    sparse = {c: cov[c] for c in VIOLATION_CODES if cov[c] < FLOOR}
+    assert not sparse, f"violation types below floor {FLOOR}: {sparse}"
+
+
 def test_audit_scorer_perfect_on_gold():
     path = ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl"
     s = dataset4_audit_score(path, path)
