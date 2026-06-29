@@ -1,0 +1,70 @@
+# CN-GongWen benchmark — 多模型评测配置示例（E7 Leaderboard）
+#
+# 用法：
+#   python gongwen_benchmark/scripts/eval_runner.py \
+#       --models gongwen_benchmark/scripts/models_example.yaml \
+#       --dataset all --output-dir results/
+#
+# 字段说明：
+#   name       显示在 leaderboard 中的模型名称（自取，建议唯一）
+#   provider   litellm / azure / poe
+#   model      litellm: 完整 model string（如 openai/gpt-4o）
+#              azure:   deployment name（如 gpt-4o）
+#              poe:     bot handle（如 GPT-4o）
+#   api_key    API key（留空时从环境变量读取）
+#   api_base   自定义 endpoint（litellm relay 时填写；标准 provider 留空）
+#   api_version  仅 Azure 使用，默认 "2024-08-01-preview"
+#   bot_name   仅 Poe 使用（可以代替 model 字段）
+#   deployment 仅 Azure 使用（可以代替 model 字段）
+
+# ── 强梯队：闭源旗舰 ──────────────────────────────────────────────────────────
+- name: GPT-4o
+  provider: litellm
+  model: openai/gpt-4o
+  # api_key: sk-...   # 留空则读取 OPENAI_API_KEY 环境变量
+
+- name: Claude-3-7-Sonnet
+  provider: litellm
+  model: anthropic/claude-3-7-sonnet-20250219
+  # api_key: ...  # 留空则读取 ANTHROPIC_API_KEY
+
+- name: Gemini-2.0-Flash
+  provider: litellm
+  model: gemini/gemini-2.0-flash
+  # api_key: ...  # 留空则读取 GEMINI_API_KEY / GOOGLE_API_KEY
+
+# ── Azure OpenAI 接入示例 ─────────────────────────────────────────────────────
+- name: Azure-GPT-4o
+  provider: azure
+  deployment: gpt-4o                          # 你的 Azure deployment 名称
+  # api_base: https://myresource.openai.azure.com/
+  # api_key: ...  # 留空则读取 AZURE_API_KEY / AZURE_OPENAI_API_KEY
+  # api_version: "2024-08-01-preview"         # 留空则用默认值
+
+# ── Poe API 接入示例 ──────────────────────────────────────────────────────────
+- name: Claude-via-Poe
+  provider: poe
+  bot_name: Claude-3-7-Sonnet                 # poe.com 上的 bot handle（区分大小写）
+  # api_key: ...  # 留空则读取 POE_API_KEY
+
+- name: GPT4o-via-Poe
+  provider: poe
+  bot_name: GPT-4o
+  # api_key: ...
+
+# ── 中梯队：主流开源 ──────────────────────────────────────────────────────────
+- name: Qwen2.5-72B
+  provider: litellm
+  model: qwen/qwen2.5-72b-instruct
+  # api_key: ...  # 留空则读取 QWEN_API_KEY / DASHSCOPE_API_KEY
+
+- name: DeepSeek-V3
+  provider: litellm
+  model: deepseek/deepseek-chat
+  # api_key: ...  # 留空则读取 DEEPSEEK_API_KEY
+
+# ── 弱梯队：轻量开源（基线参照） ──────────────────────────────────────────────
+- name: Qwen2.5-7B
+  provider: litellm
+  model: qwen/qwen2.5-7b-instruct
+  # api_key: ...

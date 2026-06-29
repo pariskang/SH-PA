@@ -1,14 +1,36 @@
 [project]
 name = "cn-gongwen-benchmark"
-version = "0.1.0"
+version = "0.2.0"
 description = "CN-GongWen-Q and CN-GongWen-DataQA Chinese official-document (公文) benchmark generators"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
+# LiteLLM backend — supports OpenAI, Anthropic, Minimax, Qwen, DeepSeek, Together, etc.
+# Usage: pip install '.[llm]'
 llm = ["litellm>=1.0.0"]
+
+# Azure OpenAI — routed through LiteLLM's azure/ prefix; install together with [llm].
+# Usage: pip install '.[azure]'  (automatically pulls litellm)
+azure = ["litellm>=1.0.0"]
+
+# Poe API — fastapi-poe client; enables --provider poe in both generate_benchmarks and eval_runner.
+# Usage: pip install '.[poe]'
+# Get your Poe API key at https://poe.com/api_key
+poe = ["fastapi-poe>=0.0.47"]
+
+# All LLM providers at once.
+# Usage: pip install '.[all-providers]'
+all-providers = ["litellm>=1.0.0", "fastapi-poe>=0.0.47"]
+
+# Parquet export for records.csv → records.parquet.
 parquet = ["pandas>=2.0.0", "pyarrow>=14.0.0"]
+
+# Development and testing.
 dev = ["pytest>=8.0.0", "PyYAML>=6.0"]
+
+# Full install for benchmark runners (eval_runner.py leaderboard workflow).
+eval = ["litellm>=1.0.0", "fastapi-poe>=0.0.47", "PyYAML>=6.0"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

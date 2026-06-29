@@ -44,6 +44,7 @@ from benchmark_schema import (
 )
 from generate_benchmarks import ACTION_VERBS, DIR_CN, SUBJECTS, agency_metadata, hashed, pick, write_jsonl
 from litellm_minimax import LiteLLMConfig, completion_json
+from llm_providers import ProviderConfig
 from tokens import estimate_tokens
 
 ROOT = SCRIPT_DIR.parent
@@ -520,7 +521,12 @@ def _prompt_ok(spec: WritingSpec, candidate: str) -> bool:
     return all(tok in candidate for tok in (spec.doc_type, spec.agency, spec.subject, str(lo)))
 
 
-def author_prompts(specs: list[WritingSpec], cfg: LiteLLMConfig | None, use_llm: bool) -> dict[str, tuple[str, str]]:
+def author_prompts(
+    specs: list[WritingSpec],
+    cfg: ProviderConfig | None,
+    use_llm: bool,
+    provider_name: str = "llm",
+) -> dict[str, tuple[str, str]]:
     """返回 spec_id -> (prompt 文本, engine)。LLM 一次 10 条；不合格逐条回退确定性模板。"""
     if not (use_llm and cfg is not None):
         return {s.spec_id: (deterministic_prompt(s), "deterministic") for s in specs}
@@ -536,16 +542,16 @@ def author_prompts(specs: list[WritingSpec], cfg: LiteLLMConfig | None, use_llm:
             got = {}
         for s in batch:
             cand = got.get(s.spec_id, "")
-            out[s.spec_id] = (cand, "minimax") if _prompt_ok(s, cand) else (deterministic_prompt(s), "deterministic")
+            out[s.spec_id] = (cand, provider_name) if _prompt_ok(s, cand) else (deterministic_prompt(s), "deterministic")
     return out
 
 
 # --------------------------------------------------------------------------------------
 # 数据集构建与落盘
 # --------------------------------------------------------------------------------------
-def build_writing_dataset(count: int, use_llm: bool = False, cfg: LiteLLMConfig | None = None):
+def build_writing_dataset(count: int, use_llm: bool = False, cfg: ProviderConfig | None = None, provider_name: str = "llm"):
     specs = build_writing_specs(count)
-    prompts = author_prompts(specs, cfg, use_llm)
+    prompts = author_prompts(specs, cfg, use_llm, provider_name=provider_name)
     public, hidden = [], []
     for s in specs:
         framework = build_framework(s)
@@ -583,8 +589,8 @@ def build_writing_taxonomy() -> dict[str, Any]:
     }
 
 
-def write_writing_dataset(count: int, use_llm: bool = False, cfg: LiteLLMConfig | None = None) -> dict[str, Any]:
-    public, hidden = build_writing_dataset(count, use_llm, cfg)
+def write_writing_dataset(count: int, use_llm: bool = False, cfg: ProviderConfig | None = None, provider_name: str = "llm") -> dict[str, Any]:
+    public, hidden = build_writing_dataset(count, use_llm, cfg, provider_name=provider_name)
     write_jsonl(DATASET3 / "writing_prompts_public.jsonl", public)
     write_jsonl(DATASET3 / "writing_prompts_with_rubric.jsonl", hidden)
     (DATASET3 / "taxonomy.json").write_text(
@@ -595,18 +601,30 @@ def write_writing_dataset(count: int, use_llm: bool = False, cfg: LiteLLMConfig 
         "writing_buckets": buckets,
         "writing_doc_types": len({h["spec"]["doc_type"] for h in hidden}),
         "writing_medical_share": round(sum(h["spec"]["policy_domain"] == "医疗卫生" for h in hidden) / max(1, len(hidden)), 3),
-        "writing_prompt_engine": "minimax" if (use_llm and cfg is not None) else "deterministic",
+        "writing_prompt_engine": provider_name if (use_llm and cfg is not None) else "deterministic",
     }
 
 
 def main() -> None:
+    from llm_providers import config_from_provider, AzureConfig, PoeConfig
     parser = argparse.ArgumentParser(description="生成公文写作测试 prompt（按目标产出 token 分短/中/长）")
     parser.add_argument("--count", type=int, default=90, help="题量（90 时恰覆盖 15 文种×3 长度×2 政策方向）")
-    parser.add_argument("--use-litellm", action="store_true", help="用 LLM 一次 10 条撰写 prompt（需 MINIMAX_API_KEY）")
+    parser.add_argument("--use-litellm", action="store_true", help="[已弃用] 与 --use-llm 相同")
+    parser.add_argument("--use-llm", action="store_true", help="用 LLM 一次 10 条撰写 prompt")
+    parser.add_argument(
+        "--provider", choices=["litellm", "azure", "poe"], default="litellm",
+        help="LLM provider（默认 litellm）"
+    )
+    parser.add_argument("--llm-model", default=None, help="模型名称/部署名/bot handle")
     args = parser.parse_args()
-    use_llm = args.use_litellm and bool(os.getenv("MINIMAX_API_KEY"))
-    cfg = LiteLLMConfig() if use_llm else None
-    summary = write_writing_dataset(args.count, use_llm, cfg)
+    use_llm = args.use_llm or args.use_litellm
+    if use_llm:
+        cfg = config_from_provider(args.provider, args.llm_model)
+        provider_name = args.provider
+    else:
+        cfg = None
+        provider_name = "deterministic"
+    summary = write_writing_dataset(args.count, use_llm, cfg, provider_name=provider_name)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
