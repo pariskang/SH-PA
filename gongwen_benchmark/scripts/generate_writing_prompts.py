@@ -44,6 +44,7 @@ from benchmark_schema import (
 )
 from generate_benchmarks import ACTION_VERBS, DIR_CN, SUBJECTS, agency_metadata, hashed, pick, write_jsonl
 from litellm_minimax import LiteLLMConfig, completion_json
+from llm_providers import ProviderConfig
 from tokens import estimate_tokens
 
 ROOT = SCRIPT_DIR.parent
@@ -520,7 +521,7 @@ def _prompt_ok(spec: WritingSpec, candidate: str) -> bool:
     return all(tok in candidate for tok in (spec.doc_type, spec.agency, spec.subject, str(lo)))
 
 
-def author_prompts(specs: list[WritingSpec], cfg: LiteLLMConfig | None, use_llm: bool) -> dict[str, tuple[str, str]]:
+def author_prompts(specs: list[WritingSpec], cfg: ProviderConfig | None, use_llm: bool) -> dict[str, tuple[str, str]]:
     """返回 spec_id -> (prompt 文本, engine)。LLM 一次 10 条；不合格逐条回退确定性模板。"""
     if not (use_llm and cfg is not None):
         return {s.spec_id: (deterministic_prompt(s), "deterministic") for s in specs}
@@ -543,7 +544,7 @@ def author_prompts(specs: list[WritingSpec], cfg: LiteLLMConfig | None, use_llm:
 # --------------------------------------------------------------------------------------
 # 数据集构建与落盘
 # --------------------------------------------------------------------------------------
-def build_writing_dataset(count: int, use_llm: bool = False, cfg: LiteLLMConfig | None = None):
+def build_writing_dataset(count: int, use_llm: bool = False, cfg: ProviderConfig | None = None):
     specs = build_writing_specs(count)
     prompts = author_prompts(specs, cfg, use_llm)
     public, hidden = [], []
@@ -583,7 +584,7 @@ def build_writing_taxonomy() -> dict[str, Any]:
     }
 
 
-def write_writing_dataset(count: int, use_llm: bool = False, cfg: LiteLLMConfig | None = None) -> dict[str, Any]:
+def write_writing_dataset(count: int, use_llm: bool = False, cfg: ProviderConfig | None = None) -> dict[str, Any]:
     public, hidden = build_writing_dataset(count, use_llm, cfg)
     write_jsonl(DATASET3 / "writing_prompts_public.jsonl", public)
     write_jsonl(DATASET3 / "writing_prompts_with_rubric.jsonl", hidden)

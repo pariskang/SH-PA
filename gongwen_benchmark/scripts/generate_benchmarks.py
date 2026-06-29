@@ -43,7 +43,16 @@ from benchmark_schema import (
     medical_area_by_name,
 )
 from data_sources import ingest_csv
-from litellm_minimax import LiteLLMConfig, litellm_available, polish_briefing, rewrite_question
+from litellm_minimax import (
+    LiteLLMConfig,
+    AzureConfig,
+    PoeConfig,
+    litellm_available,
+    poe_available,
+    polish_briefing,
+    rewrite_question,
+)
+from llm_providers import config_from_provider, ProviderConfig
 
 ROOT = SCRIPT_DIR.parent
 DATASET1 = ROOT / "dataset_1_question_only"
@@ -1156,12 +1165,36 @@ def export_parquet(records: list[dict[str, Any]], path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate CN official-document benchmark artifacts.")
+    parser = argparse.ArgumentParser(
+        description="Generate CN official-document benchmark artifacts.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "LLM provider examples:\n"
+            "  --use-llm --provider litellm --llm-model openai/gpt-4o\n"
+            "  --use-llm --provider azure   --llm-model gpt-4o  (reads AZURE_* env vars)\n"
+            "  --use-llm --provider poe     --llm-model GPT-4o  (reads POE_API_KEY)\n"
+            "  --use-litellm                              (legacy; same as --use-llm --provider litellm)"
+        ),
+    )
     parser.add_argument("--profile", choices=list(PROFILES), default="standard")
     parser.add_argument("--q-count", type=int, default=None)
     parser.add_argument("--dataqa-questions", type=int, default=None)
-    parser.add_argument("--use-litellm", action="store_true")
-    parser.add_argument("--records-input", type=Path, default=None, help="approved aggregate official-document CSV")
+    # Legacy flag kept for backward compatibility.
+    parser.add_argument("--use-litellm", action="store_true",
+                        help="Enable LLM rewriting via LiteLLM (legacy; use --use-llm --provider litellm)")
+    # New unified LLM flags.
+    parser.add_argument("--use-llm", action="store_true",
+                        help="Enable LLM-assisted question rewriting and briefing polishing")
+    parser.add_argument("--provider", choices=["litellm", "azure", "poe"], default="litellm",
+                        help="LLM provider backend when --use-llm is active (default: litellm)")
+    parser.add_argument("--llm-model", default=None,
+                        help=(
+                            "Model identifier: litellm→ 'openai/gpt-4o' / 'anthropic/claude-opus-4-8' / "
+                            "'qwen/qwen-max' / 'deepseek/deepseek-chat'; "
+                            "azure→ deployment name; poe→ bot handle e.g. 'GPT-4o'"
+                        ))
+    parser.add_argument("--records-input", type=Path, default=None,
+                        help="approved aggregate official-document CSV")
     parser.add_argument("--no-anonymize-input", action="store_true")
     parser.add_argument("--export-parquet", type=Path, default=None)
     args = parser.parse_args()
@@ -1169,11 +1202,30 @@ def main() -> None:
     profile = PROFILES[args.profile]
     q_count = args.q_count or profile.default_q
     dataqa_count = args.dataqa_questions or profile.default_dataqa
-    cfg = LiteLLMConfig() if args.use_litellm else None
-    if args.use_litellm and not litellm_available():
-        raise SystemExit("litellm 未安装：pip install '.[llm]'")
-    if args.use_litellm and (cfg is None or not cfg.api_key):
-        raise SystemExit("启用 --use-litellm 需先配置 MINIMAX_API_KEY（或 OPENAI_API_KEY）")
+
+    use_llm = args.use_llm or args.use_litellm
+    cfg: ProviderConfig | None = None
+    if use_llm:
+        provider = args.provider if args.use_llm else "litellm"
+        cfg = config_from_provider(provider, args.llm_model)
+        if provider in ("litellm", "azure") and not litellm_available():
+            raise SystemExit(
+                f"litellm 未安装（provider={provider}）：pip install '.[llm]'"
+            )
+        if provider == "poe" and not poe_available():
+            raise SystemExit(
+                "fastapi-poe 未安装（provider=poe）：pip install '.[poe]'"
+            )
+        # Check that an API key is available for the selected provider.
+        if isinstance(cfg, AzureConfig) and not cfg.api_key:
+            raise SystemExit("Azure provider 需配置 AZURE_API_KEY 或 AZURE_OPENAI_API_KEY")
+        if isinstance(cfg, PoeConfig) and not cfg.api_key:
+            raise SystemExit("Poe provider 需配置 POE_API_KEY（https://poe.com/api_key）")
+        if isinstance(cfg, LiteLLMConfig) and not cfg.api_key:
+            raise SystemExit(
+                "LiteLLM provider 需配置 API key（LLM_API_KEY / OPENAI_API_KEY / "
+                "MINIMAX_API_KEY / ANTHROPIC_API_KEY / DEEPSEEK_API_KEY 之一）"
+            )
 
     agencies = agency_metadata(profile.agencies)
     if args.records_input:
@@ -1185,20 +1237,23 @@ def main() -> None:
     write_records_csv(records)
     write_binary_placeholders()
 
-    public, hidden = build_q_dataset(agencies, q_count, args.use_litellm, cfg)
+    public, hidden = build_q_dataset(agencies, q_count, use_llm, cfg)
     write_jsonl(DATASET1 / "questions_public.jsonl", public)
     write_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl", hidden)
     (DATASET1 / "taxonomy.json").write_text(json.dumps(build_taxonomy(), ensure_ascii=False, indent=2), encoding="utf-8")
+    provider_label = (
+        f"{args.provider}/{type(cfg).__name__}" if cfg is not None else "none"
+    )
     (DATASET1 / "generation_prompts.md").write_text(
         "# CN-GongWen-Q 生成说明\n\n"
         "- public 切分仅含 `question`，不含任何标签。\n"
         "- hidden 切分含 文种/行文方向/格式要素/安全意图 元数据，供离线打分。\n"
-        "- LiteLLM 仅在事实护栏下改写问题措辞，不改变文种、字号、日期、密级等关键事实。\n",
+        f"- 生成时 LLM provider：{provider_label}（事实护栏下改写问题措辞，不改变关键事实）。\n",
         encoding="utf-8")
 
     corpus = Corpus(records)
     questions, answers, evidence_map, anomaly_labels, briefing_tasks = build_dataqa(
-        corpus, dataqa_count, args.use_litellm, cfg)
+        corpus, dataqa_count, use_llm, cfg)
     write_jsonl(DATASET2 / "questions.jsonl", questions)
     write_jsonl(DATASET2 / "answers.jsonl", answers)
     write_jsonl(DATASET2 / "evidence_map.jsonl", evidence_map)
@@ -1208,9 +1263,9 @@ def main() -> None:
     build_workflow(corpus)
 
     # CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt。
-    # 评分真相（rubric/framework/reference）确定性生成；prompt 文本在 --use-litellm 且有 key 时由 LLM 一次 10 条撰写。
+    # 评分真相（rubric/framework/reference）确定性生成；prompt 文本在 use_llm 且有 key 时由 LLM 一次 10 条撰写。
     from generate_writing_prompts import write_writing_dataset
-    writing = write_writing_dataset(profile.default_writing, args.use_litellm, cfg)
+    writing = write_writing_dataset(profile.default_writing, use_llm, cfg)
 
     # CN-GongWen-Audit（dataset_4）：公文审核/纠错（确定性注入雷区→找出违规），完全确定性。
     from generate_audit_tasks import write_audit_dataset
@@ -1225,7 +1280,7 @@ def main() -> None:
         "anomaly_labels": len(anomaly_labels), "briefing_tasks": len(briefing_tasks),
         "writing_prompts": writing["writing_count"], "writing_buckets": writing["writing_buckets"],
         "audit_tasks": audit["audit_count"], "audit_flawed": audit["audit_flawed"],
-        "used_litellm": bool(args.use_litellm),
+        "used_llm": use_llm, "llm_provider": provider_label,
     }, ensure_ascii=False, indent=2))
 
 
