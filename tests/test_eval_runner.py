@@ -17,13 +17,17 @@ ROOT = Path(__file__).resolve().parents[1] / "gongwen_benchmark"
 
 # ── provider routing (C5) ─────────────────────────────────────────────────────
 
-def test_litellm_model_passthrough_for_prefixed_names():
+def test_litellm_model_routing():
+    # explicit provider prefix → pass through untouched
     assert L.LiteLLMConfig(model="gemini/gemini-2.0-flash").litellm_model == "gemini/gemini-2.0-flash"
     assert L.LiteLLMConfig(model="anthropic/claude-opus-4-8").litellm_model == "anthropic/claude-opus-4-8"
     assert L.LiteLLMConfig(model="together_ai/x/y").litellm_model == "together_ai/x/y"
-    # Bare legacy names → openai-compatible.
-    assert L.LiteLLMConfig(model="MiniMax-M1").litellm_model == "openai/MiniMax-M1"
-    assert L.LiteLLMConfig(model="gpt-4o").litellm_model == "openai/gpt-4o"
+    # bare id, no relay → pass through so LiteLLM routes by its own model map
+    # (forcing openai/ would 404 a bare non-OpenAI id like claude-opus-4-8)
+    assert L.LiteLLMConfig(model="gpt-4o", api_base=None).litellm_model == "gpt-4o"
+    assert L.LiteLLMConfig(model="claude-opus-4-8", api_base=None).litellm_model == "claude-opus-4-8"
+    # bare id against a custom relay endpoint → OpenAI-compatible prefix
+    assert L.LiteLLMConfig(model="MiniMax-M1", api_base="https://relay/v1").litellm_model == "openai/MiniMax-M1"
 
 
 # ── fact guard (M3) ───────────────────────────────────────────────────────────

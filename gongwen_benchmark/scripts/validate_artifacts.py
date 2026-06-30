@@ -251,6 +251,7 @@ def validate_audit(root: Path) -> dict[str, Any]:
     clean = sum(1 for h in hidden if h["is_clean"])
     assert clean > 0 and (len(hidden) - clean) > 0, "audit needs both clean and flawed docs"
     covered = {v for h in hidden for v in h["violations"]}
+    assert covered == codes, f"audit violation coverage incomplete: missing {sorted(codes - covered)}"
     return {
         "audit": len(public),
         "audit_clean": clean,

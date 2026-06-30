@@ -238,6 +238,19 @@ def test_xl_profile_supports_6000_questions():
     assert p.days >= 90 and p.agencies == 37
 
 
+def test_audit_coverage_holds_at_small_counts():
+    """Regression: at small counts (mini=30) the greedy floor-fill could saturate
+    shared carriers and leave the last-ordered violation types at 0. The coverage
+    safety-net must guarantee all 16 types appear at every realistic count."""
+    import collections
+    from gongwen_benchmark.scripts.generate_audit_tasks import build_audit_dataset, VIOLATION_CODES
+    for count in (30, 60, 90):
+        _, hidden = build_audit_dataset(count)
+        cov = collections.Counter(v for h in hidden for v in h["violations"])
+        missing = set(VIOLATION_CODES) - set(cov)
+        assert not missing, f"count={count}: violation types missing {sorted(missing)}"
+
+
 def test_audit_every_violation_type_is_well_sampled():
     """Each of the 16 violation types must have an adequate sample size for a
     stable per-type precision/recall — including the doc-type-constrained ones

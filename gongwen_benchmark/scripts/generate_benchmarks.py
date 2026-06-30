@@ -52,7 +52,7 @@ from litellm_minimax import (
     polish_briefing,
     rewrite_question,
 )
-from llm_providers import config_from_provider, ProviderConfig
+from llm_providers import config_from_provider, ProviderConfig, get_llm_stats, reset_llm_stats
 
 ROOT = SCRIPT_DIR.parent
 DATASET1 = ROOT / "dataset_1_question_only"
@@ -1222,10 +1222,12 @@ def main() -> None:
     args = parser.parse_args()
 
     profile = PROFILES[args.profile]
-    q_count = args.q_count or profile.default_q
-    dataqa_count = args.dataqa_questions or profile.default_dataqa
-    writing_count = args.writing_count or profile.default_writing
-    audit_count = args.audit_count or profile.default_audit
+    # Use `is not None` (not `or`) so an explicit 0 (e.g. --writing-count 0 to skip
+    # a dataset) is honored instead of silently falling back to the profile default.
+    q_count = args.q_count if args.q_count is not None else profile.default_q
+    dataqa_count = args.dataqa_questions if args.dataqa_questions is not None else profile.default_dataqa
+    writing_count = args.writing_count if args.writing_count is not None else profile.default_writing
+    audit_count = args.audit_count if args.audit_count is not None else profile.default_audit
 
     use_llm = args.use_llm or args.use_litellm
     # --provider is honored whenever LLM rewriting is on, including the legacy
@@ -1235,6 +1237,7 @@ def main() -> None:
     cfg: ProviderConfig | None = None
     if use_llm:
         cfg = config_from_provider(provider, args.llm_model)
+        reset_llm_stats()  # so the summary reports this run's LLM fallback rate
         if provider in ("litellm", "azure") and not litellm_available():
             raise SystemExit(
                 f"litellm 未安装（provider={provider}）：pip install '.[llm]'"
@@ -1302,14 +1305,29 @@ def main() -> None:
     if args.export_parquet:
         export_parquet(records, args.export_parquet)
 
-    print(json.dumps({
+    summary = {
         "profile": args.profile, "agencies": len(agencies), "records": len(records),
         "q_questions": len(public), "dataqa_questions": len(questions),
         "anomaly_labels": len(anomaly_labels), "briefing_tasks": len(briefing_tasks),
         "writing_prompts": writing["writing_count"], "writing_buckets": writing["writing_buckets"],
         "audit_tasks": audit["audit_count"], "audit_flawed": audit["audit_flawed"],
         "used_llm": use_llm, "llm_provider": provider_label,
-    }, ensure_ascii=False, indent=2))
+    }
+    if use_llm:
+        # Surface silent fallbacks: a high rate means the LLM rarely produced an
+        # accepted rewrite (mis-routed model / over-strict guard / API errors) and
+        # the output is largely the deterministic baseline despite used_llm=true.
+        stats = get_llm_stats()
+        summary["llm_question_fallback_rate"] = stats["fallback_rate"]
+        summary["llm_question_attempts"] = stats["attempts"]
+        if stats["attempts"] and stats["fallback_rate"] >= 0.5:
+            print(
+                f"[warn] LLM question rewriting fell back to the deterministic "
+                f"template for {stats['fallbacks']}/{stats['attempts']} questions "
+                f"({stats['fallback_rate']:.0%}). Check the model id / API key.",
+                file=sys.stderr,
+            )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

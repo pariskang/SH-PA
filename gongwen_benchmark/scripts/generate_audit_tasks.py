@@ -274,7 +274,7 @@ def build_audit_specs(count: int) -> list[WritingSpec]:
     ``baogao_embeds_request`` 只在报告、``missing_signatory_upward``/
     ``cc_to_subordinate_upward`` 只在上行文（报告/请示/议案）。复用写作集的均匀分布
     （每文种 6 篇）会让这些类型天然样本不足。这里给请示/报告/议案更高配额，并保证
-    15 文种全覆盖、约一半医疗，使每个违规类型都有足够承载篇目达到 ``AUDIT_FLOOR``。
+    覆盖全部 15 文种（题量 ≥17 时）、约一半医疗，使每个违规类型都有足够承载篇目达到 ``AUDIT_FLOOR``。
     """
     agencies = agency_metadata(37)
     by_code = {a["agency_code"]: a for a in agencies}
@@ -370,6 +370,27 @@ def build_audit_dataset(count: int, floor: int | None = None):
                 progressed = True
         if not progressed:
             break
+
+    # Coverage safety-net: at very small counts (e.g. mini=30) the greedy floor
+    # fill can saturate the few shared carriers (AUDIT_MAX_PER_DOC) before the
+    # last-ordered types are reached, leaving a type at 0 samples. Force ≥1 for any
+    # uncovered type, allowing the per-doc cap to be exceeded. No-op when every
+    # type is already covered (so standard/full/xl are unaffected).
+    counts = Counter(c for d in detected.values() for c in d)
+    for code in VIOLATION_CODES:
+        if counts[code] > 0:
+            continue
+        cands = [
+            i for i in range(n)
+            if i not in is_clean and applicable(i, code) and code not in tried[i]
+        ]
+        cands.sort(key=lambda i: (len(plan[i]), hashed("aucover", code, specs[i].spec_id)))
+        for i in cands:
+            plan[i].add(code)
+            if code in _build_flawed(specs[i], refs[i], plan[i])[1]:
+                break
+            plan[i].discard(code)
+            tried[i].add(code)
 
     public, hidden = [], []
     for i, s in enumerate(specs):

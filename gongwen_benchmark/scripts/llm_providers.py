@@ -97,15 +97,18 @@ class LiteLLMConfig:
 
     @property
     def litellm_model(self) -> str:
-        # If the model already names a provider (contains "/"), pass it through
-        # untouched and let LiteLLM route it (openai/, anthropic/, gemini/,
-        # qwen/, deepseek/, together_ai/, vertex_ai/, xai/, openrouter/ …).
-        # Only bare legacy names with no provider prefix (e.g. "MiniMax-M1",
-        # "gpt-4o") are treated as OpenAI-compatible. This avoids mis-routing
-        # gemini/… → openai/gemini/… (a 404 against the wrong endpoint).
+        # Explicit provider prefix (openai/, anthropic/, gemini/, qwen/, deepseek/,
+        # together_ai/, vertex_ai/, xai/, openrouter/ …) → pass through untouched.
         if "/" in self.model:
             return self.model
-        return f"openai/{self.model}"
+        # Bare name against a custom relay endpoint (e.g. a MiniMax / OpenAI-
+        # compatible gateway) → mark OpenAI-compatible so LiteLLM targets the relay.
+        if self.api_base:
+            return f"openai/{self.model}"
+        # Otherwise let LiteLLM route the bare id via its own model map
+        # ("gpt-4o"→openai, "claude-3-5-sonnet-…"→anthropic, …). Forcing openai/
+        # here would mis-route a bare non-OpenAI id (e.g. claude-opus-4-8) to a 404.
+        return self.model
 
 
 @dataclass(frozen=True)
@@ -441,6 +444,23 @@ def fact_guard(source: str, candidate: str) -> bool:
 # Generation-time helpers (used by generate_benchmarks.py and writing generator)
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Lightweight counters so a generation run can surface SILENT LLM fallbacks: a
+# mis-routed model, a guard rejection, or a network/JSON error all degrade to the
+# deterministic template — otherwise invisible despite used_llm=true.
+_LLM_STATS = {"attempts": 0, "fallbacks": 0}
+
+
+def reset_llm_stats() -> None:
+    _LLM_STATS["attempts"] = 0
+    _LLM_STATS["fallbacks"] = 0
+
+
+def get_llm_stats() -> dict[str, Any]:
+    s = dict(_LLM_STATS)
+    s["fallback_rate"] = round(s["fallbacks"] / s["attempts"], 4) if s["attempts"] else 0.0
+    return s
+
+
 def rewrite_question(
     template_question: str,
     context: dict[str, Any],
@@ -451,6 +471,7 @@ def rewrite_question(
     Falls back to the original template on any error (network / key / JSON / fact violation)
     so the frozen generation pipeline is never interrupted.
     """
+    _LLM_STATS["attempts"] += 1
     payload = {
         "template_question": template_question,
         "context": context,
@@ -471,9 +492,13 @@ def rewrite_question(
             config,
         )
     except Exception:
+        _LLM_STATS["fallbacks"] += 1
         return template_question
     candidate = str(result.get("question", "")).strip()
-    return candidate if fact_guard(template_question, candidate) else template_question
+    if fact_guard(template_question, candidate):
+        return candidate
+    _LLM_STATS["fallbacks"] += 1
+    return template_question
 
 
 def polish_briefing(
@@ -494,6 +519,7 @@ def polish_briefing(
             '输出 {"answer": "..."}',
         ],
     }
+    _LLM_STATS["attempts"] += 1
     try:
         result = completion_json(
             [
@@ -503,9 +529,13 @@ def polish_briefing(
             config,
         )
     except Exception:
+        _LLM_STATS["fallbacks"] += 1
         return template_answer
     candidate = str(result.get("answer", "")).strip()
-    return candidate if fact_guard(template_answer, candidate) else template_answer
+    if fact_guard(template_answer, candidate):
+        return candidate
+    _LLM_STATS["fallbacks"] += 1
+    return template_answer
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -233,11 +233,13 @@ _DATAQA_SCHEMAS: dict[str, str] = {
         '"by_direction":{"下行文":n,"上行文":n,"平行文":n},"violation_count":n,'
         '"urgent_count":n,"secret_count":n}}',
     "cross_doc_extremum":
-        '{"doc_id":"R公文号","value":数值,"unit":"题面所述计量单位"}',
+        '{"doc_id":"R公文号","value":抄送机关数量,"unit":"个抄送机关"}',
     "consecutive_compliance_streak":
         '{"agency_id":"GAxxx","streak_days":连续天数}',
     "counterfactual_format":
-        '{"compliant_after_fix":true或false,"remaining_issues":[剩余问题代码列表，无则空]}',
+        '{"compliant_after_fix":true或false,'
+        '"remaining_issues":[仍存在问题的要素名称（中文，如 标题/发文字号/密级和保密期限/'
+        '签发人/主送机关），完全合规则空列表]}',
     "quality_filtered_aggregate":
         '{"value":数量,"unit":"件"}',
     "precision_percentage_change":
@@ -695,8 +697,12 @@ def _bootstrap_ci(values: list[float], n: int = _BOOTSTRAP_N) -> tuple[float, fl
 
 # Metrics where lower is better — inverted (1 - x) before averaging.
 _LOWER_IS_BETTER = {"briefing_hallucination_rate"}
-# Derived/summary metrics excluded from macro (they would double-count components).
-_DERIVED_METRICS = {"overall_compliance"}
+# Derived/summary metrics excluded from macro — each is a function of other leaf
+# metrics in the same path (overall_* are conjunctions of their dimensions; F1 is
+# derived from its precision/recall), so including them would double-count.
+_DERIVED_METRICS = {
+    "overall_compliance", "overall_rewrite_compliance", "anomaly_f1", "violation_f1",
+}
 
 
 def _macro_score(scores: dict[str, Any]) -> float:
@@ -734,7 +740,12 @@ def compile_leaderboard(output_dir: Path) -> dict[str, Any]:
         meta_path = model_dir / "model_meta.json"
         if not meta_path.exists():
             continue
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"  Skipping {model_dir.name} (unreadable model_meta.json: {exc})",
+                  file=sys.stderr)
+            continue
         if meta.get("preflight_error"):
             # A model whose provider was unusable wrote no real predictions; do
             # not score it (empty predictions would otherwise rank as ~0.57).
