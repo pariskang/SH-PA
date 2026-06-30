@@ -200,36 +200,44 @@ def _combinations() -> list[tuple[Any, str, bool]]:
     return combos
 
 
+def _make_spec(dt, length: str, medical: bool, i: int, agencies, by_code) -> WritingSpec:
+    """Build one deterministic WritingSpec for (文种, 长度, 医疗) at global index i.
+
+    Factored out so other generators (e.g. the audit set) can compose a custom
+    文种 distribution while reusing the exact, byte-identical spec logic.
+    """
+    direction = dt.direction if dt.direction != "flexible" else "downward"
+    if medical:
+        area = MEDICAL_AREAS[hashed("war", i) % len(MEDICAL_AREAS)]
+        topic = area.topics[hashed("wtp", i) % len(area.topics)]
+        subject = pick(ACTION_VERBS, "wv", i) + topic
+        pd, ma, mt = "医疗卫生", area.name, topic
+    else:
+        subject = SUBJECTS[hashed("wsj", i) % len(SUBJECTS)]
+        pd, ma, mt = "通用政务", "", ""
+    ag = _agency_for(dt.name, medical, ma, agencies, by_code, i)
+    security = "公开" if dt.category == "公布性" else ("秘密" if hashed("wsec", i) % 6 == 0 else "公开")
+    urgency = ("平件", "平件", "加急", "特急")[hashed("wurg", i) % 4]
+    recipient = _recipient(direction, dt.name, ag["agency_level"])
+    return WritingSpec(
+        spec_id=f"WP_{i + 1:06d}", doc_type=dt.name, doc_type_code=dt.code, category=dt.category,
+        direction=direction, needs_signatory=dt.needs_signatory, single_recipient=dt.single_recipient,
+        policy_domain=pd, medical_area=ma, medical_topic=mt, subject=subject,
+        agency=ag["agency_name"], agency_code=ag["agency_code"], agency_level=ag["agency_level"],
+        recipient=recipient, length=length, security=security, urgency=urgency,
+        has_attachment=(length in ("medium", "long") and hashed("watt", i) % 2 == 0),
+        has_cc=(direction != "upward" and length in ("medium", "long") and hashed("wcc", i) % 2 == 0),
+    )
+
+
 def build_writing_specs(count: int) -> list[WritingSpec]:
     agencies = agency_metadata(37)
     by_code = {a["agency_code"]: a for a in agencies}
     combos = _combinations()
-    specs: list[WritingSpec] = []
-    for i in range(count):
-        dt, length, medical = combos[i % len(combos)]
-        direction = dt.direction if dt.direction != "flexible" else "downward"
-        if medical:
-            area = MEDICAL_AREAS[hashed("war", i) % len(MEDICAL_AREAS)]
-            topic = area.topics[hashed("wtp", i) % len(area.topics)]
-            subject = pick(ACTION_VERBS, "wv", i) + topic
-            pd, ma, mt = "医疗卫生", area.name, topic
-        else:
-            subject = SUBJECTS[hashed("wsj", i) % len(SUBJECTS)]
-            pd, ma, mt = "通用政务", "", ""
-        ag = _agency_for(dt.name, medical, ma, agencies, by_code, i)
-        security = "公开" if dt.category == "公布性" else ("秘密" if hashed("wsec", i) % 6 == 0 else "公开")
-        urgency = ("平件", "平件", "加急", "特急")[hashed("wurg", i) % 4]
-        recipient = _recipient(direction, dt.name, ag["agency_level"])
-        specs.append(WritingSpec(
-            spec_id=f"WP_{i + 1:06d}", doc_type=dt.name, doc_type_code=dt.code, category=dt.category,
-            direction=direction, needs_signatory=dt.needs_signatory, single_recipient=dt.single_recipient,
-            policy_domain=pd, medical_area=ma, medical_topic=mt, subject=subject,
-            agency=ag["agency_name"], agency_code=ag["agency_code"], agency_level=ag["agency_level"],
-            recipient=recipient, length=length, security=security, urgency=urgency,
-            has_attachment=(length in ("medium", "long") and hashed("watt", i) % 2 == 0),
-            has_cc=(direction != "upward" and length in ("medium", "long") and hashed("wcc", i) % 2 == 0),
-        ))
-    return specs
+    return [
+        _make_spec(*combos[i % len(combos)], i, agencies, by_code)
+        for i in range(count)
+    ]
 
 
 # --------------------------------------------------------------------------------------
@@ -596,17 +604,30 @@ def write_writing_dataset(count: int, use_llm: bool = False, cfg: ProviderConfig
     (DATASET3 / "taxonomy.json").write_text(
         json.dumps(build_writing_taxonomy(), ensure_ascii=False, indent=2), encoding="utf-8")
     buckets = {k: sum(1 for h in hidden if h["length_bucket"] == k) for k in LENGTH_ORDER}
+    # Report the engine label from what was ACTUALLY used per prompt (each hidden
+    # row records its prompt_engine), not the requested provider — so a run where
+    # every LLM prompt failed the fact-guard and fell back is labeled honestly.
+    engines = {h.get("prompt_engine", "deterministic") for h in hidden}
+    if engines == {provider_name}:
+        engine_label = provider_name
+    elif engines == {"deterministic"}:
+        engine_label = "deterministic"
+    else:
+        engine_label = "mixed:" + "+".join(sorted(engines))
     return {
         "writing_count": len(public),
         "writing_buckets": buckets,
         "writing_doc_types": len({h["spec"]["doc_type"] for h in hidden}),
         "writing_medical_share": round(sum(h["spec"]["policy_domain"] == "医疗卫生" for h in hidden) / max(1, len(hidden)), 3),
-        "writing_prompt_engine": provider_name if (use_llm and cfg is not None) else "deterministic",
+        "writing_prompt_engine": engine_label,
     }
 
 
 def main() -> None:
-    from llm_providers import config_from_provider, AzureConfig, PoeConfig
+    from llm_providers import (
+        config_from_provider, AzureConfig, PoeConfig, LiteLLMConfig,
+        litellm_available, poe_available,
+    )
     parser = argparse.ArgumentParser(description="生成公文写作测试 prompt（按目标产出 token 分短/中/长）")
     parser.add_argument("--count", type=int, default=90, help="题量（90 时恰覆盖 15 文种×3 长度×2 政策方向）")
     parser.add_argument("--use-litellm", action="store_true", help="[已弃用] 与 --use-llm 相同")
@@ -619,8 +640,23 @@ def main() -> None:
     args = parser.parse_args()
     use_llm = args.use_llm or args.use_litellm
     if use_llm:
-        cfg = config_from_provider(args.provider, args.llm_model)
         provider_name = args.provider
+        cfg = config_from_provider(provider_name, args.llm_model)
+        # Per-provider preflight (mirror generate_benchmarks): fail loudly instead
+        # of silently producing an all-deterministic dataset.
+        if provider_name in ("litellm", "azure") and not litellm_available():
+            raise SystemExit(f"litellm 未安装（provider={provider_name}）：pip install '.[llm]'")
+        if provider_name == "poe" and not poe_available():
+            raise SystemExit("fastapi-poe 未安装（provider=poe）：pip install '.[poe]'")
+        if isinstance(cfg, AzureConfig) and not cfg.api_key:
+            raise SystemExit("Azure provider 需配置 AZURE_API_KEY 或 AZURE_OPENAI_API_KEY")
+        if isinstance(cfg, PoeConfig) and not cfg.api_key:
+            raise SystemExit("Poe provider 需配置 POE_API_KEY（https://poe.com/api_key）")
+        if isinstance(cfg, LiteLLMConfig) and not cfg.api_key:
+            raise SystemExit(
+                "LiteLLM provider 需配置 API key（LLM_API_KEY / OPENAI_API_KEY / "
+                "ANTHROPIC_API_KEY / DEEPSEEK_API_KEY 之一）"
+            )
     else:
         cfg = None
         provider_name = "deterministic"

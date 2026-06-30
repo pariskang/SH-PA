@@ -1,38 +1,43 @@
-# CN-GongWen Benchmark (Chinese Official-Document Test-Data Generation)
+# CN-GongWen Benchmark (Chinese Official-Document Generation + Model Evaluation)
 
 [中文](README.md) | **English**
 
 A reproducible workspace that builds **four benchmarks of Chinese Party-and-government official
-documents (公文)**, aligned with the **15 statutory document types** of the *Regulations on the
-Handling of Official Documents of Party and Government Organs* (2012) and the **format elements** of
-**GB/T 9704—2012**, and further incorporating punctuation (GB/T 15834), number usage (GB/T 15835)
-and dedicated healthcare regulations. It is designed to stress-test frontier LLMs (Claude / GPT /
-Gemini) on **writing, comprehension, element extraction, format compliance, handling, and
-audit/correction** of official documents.
+documents (公文)** *and* ships a **multi-model evaluation / leaderboard** toolchain. Aligned with the
+**15 statutory document types** of the *Regulations on the Handling of Official Documents of Party and
+Government Organs* (2012) and the **format elements** of **GB/T 9704—2012**, and further incorporating
+punctuation (GB/T 15834), number usage (GB/T 15835) and dedicated healthcare regulations. It
+stress-tests frontier LLMs (Claude / GPT / Gemini / Qwen / DeepSeek …) on **writing, comprehension,
+element extraction, format compliance, handling, and audit/correction** of official documents.
+
+This repo does two things:
+
+1. **Benchmark generation** — one command deterministically builds all four datasets (with gold),
+   optionally using an LLM to rewrite surface text under fact guards.
+2. **Model evaluation** — `eval_runner.py` runs any model from **Poe / Azure / LiteLLM
+   (OpenAI/Anthropic/Qwen/DeepSeek…)** across all four datasets, scores it, and compiles a
+   **leaderboard with 95% bootstrap confidence intervals**.
 
 > 🏥 **About half the content is healthcare-policy oriented**: covering **16 medical sub-areas ×
 > ~105 specific policy topics** (DRG/DIP payment, dual-channel for nationally-negotiated drugs,
 > infection control, birth-defect prevention, hospice care, internet diagnosis…), with a
 > **three-level policy classification** (policy domain → medical sub-area → specific topic),
 > **medical-compliance discrimination questions**, medical writing-compliance rules, and
-> **medical-specific audit violations**, aligned with 2024–2026 updates (Infectious Disease
-> Prevention Law 2025, IIT Administrative Measures 2024, Medical Insurance Fund Supervision
-> Implementation Rules 2026, etc.).
+> **medical-specific audit violations**, aligned with 2024–2026 updates.
 
 > ⚠️ All agency names, personal names, document serial numbers, and document content are
 > **synthetic examples**, anonymized with "示范" (Demo) agencies and `GA###` codes; they correspond
 > to no real organization or document and contain no personal-privacy information.
 
-## One-click test-data generation in Google Colab
+## One-click reproduce + evaluate in Google Colab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pariskang/SH-PA/blob/main/notebooks/CN_GongWen_Reproduce_Colab.ipynb)
 
 **One-click perfect reproduction**: [`notebooks/CN_GongWen_Reproduce_Colab.ipynb`](notebooks/CN_GongWen_Reproduce_Colab.ipynb)
-runs end-to-end: configure → clone → install deps (incl. CJK fonts) → (optional) MiniMax LLM
+runs end-to-end: configure → clone → install deps (incl. CJK fonts) → (optional) multi-provider LLM
 rewrite-and-freeze → **one command generates all four datasets** → **`git diff` proves byte-for-byte
-identity with committed artifacts** → strict validation → unit tests → visualizations for all four
-datasets (Q 15 types / DataQA 16 tasks / medical 3-level / Writing token buckets / Audit 16
-violations) → **five scorers' gold self-eval** → sample tour.
+identity** → strict validation → unit tests → visualizations → **five scorers' gold self-eval** →
+(optional) **run a small real-model evaluation via `eval_runner.py` and produce a leaderboard**.
 
 > Because generation is entirely `SHA-256`-based with **no randomness and no third-party core
 > dependency**, regenerating from source in any environment at any time is **byte-for-byte identical**.
@@ -46,40 +51,45 @@ violations) → **five scorers' gold self-eval** → sample tour.
 | **CN-GongWen-Writing** | token-bucketed **writing test prompts**, 11-dimension structured scoring | `--dataset writing` |
 | **CN-GongWen-Audit** | official-document **audit (find errors)** + **error-correction (rewrite)** | `--dataset audit` / `rewrite` |
 
-- **CN-GongWen-Q**: covers document-type selection, writing direction, format-element recognition,
+- **CN-GongWen-Q**: document-type selection, writing direction, format-element recognition,
   applicability, boundary precision, negative enumeration, open management questions, ambiguity
   clarification, **18 hallucination/safety traps**, spoken/noisy input, plus four explicit
-  discrimination types — **document-type misuse, addressing relations, authority boundaries, and
-  medical compliance** (15 types total). Medical-compliance questions probe absolute efficacy claims,
-  patient privacy, ethics review, AI-replacing-physician, medical-insurance-fund violations, etc.
-  Strict split isolation: `questions_public.jsonl` (questions only) +
-  `questions_with_hidden_metadata.jsonl` (offline-scoring metadata).
+  discrimination types (doc-type misuse, addressing relations, authority boundaries, medical
+  compliance) — 15 types total. Strict split isolation: `questions_public.jsonl` +
+  `questions_with_hidden_metadata.jsonl`.
 - **CN-GongWen-DataQA**: structured records + Python-deterministic answers + evidence rows +
-  calculation notes + anomaly labels + priority ranking + grounded briefings +
-  policy-domain/medical-sub-area classification (16 task types, incl. 7 advanced and 5 briefing subtypes).
+  calculation notes + anomaly labels + priority ranking + grounded briefings + policy/medical
+  classification (16 task types, incl. 7 advanced and 5 briefing subtypes).
 - **CN-GongWen-Writing**: bucketed by **target output tokens** into short (≤300) / medium (300–800) /
-  long (1200–2500), covering all 15 types, embedding complex framing & rules (title three-elements,
-  ordinal hierarchy, signatory on upward documents, one-matter/single-recipient 请示, 报告 not embedding
-  a 请示, 函 as a parallel document), **executability** (basis—goal—task—responsibility—deadline—
-  safeguards—feedback), **punctuation/number norms** (GB/T 15834/15835), and **language safety**.
-  Rubrics and reference answers are **deterministically fact-grounded**; `--dataset writing` scores
-  **11 dimensions** (gold self-eval is perfect). **Medical** items add medical-compliance rules
-  (no absolute efficacy, de-identification, informed consent, ethics review, AI-as-assist not
-  replacement, insurance-fund compliance) and 2024–2026 medical authorities, with medical
-  hype/advertising red-line words folded into the language-safety dimension.
+  long (1200–2500), covering all 15 types, embedding complex framing & rules, **executability**,
+  **punctuation/number norms**, and **language safety**. Rubrics and reference answers are
+  **deterministically fact-grounded** (gold self-eval is perfect). **Medical** items add
+  medical-compliance rules and 2024–2026 authorities.
 - **CN-GongWen-Audit**: injects a deterministic subset of violations into a deterministic "correct
-  draft" (~1/4 are fully-compliant controls), covering **16 violation types** — 11 general (title
-  missing doc type, square-bracket year / "第" in the serial, Chinese-numeral date, ordinal 顿号,
-  hype language, fabricated legal article, multi-head 请示, upward document missing signatory /
-  cc-to-subordinate, 报告 embedding a 请示) + **5 medical-specific** (efficacy overclaim, patient-privacy
-  leak, research-as-clinical, AI-replaces-physician, insurance-fund violation). Gold is honesty-checked
-  by an independent detector. Two sub-tasks:
-  - **find** `--dataset audit`: violation-type precision/recall/F1 + per-item exact match + zero
-    false-alarm on clean documents.
-  - **rewrite** `--dataset rewrite`: rewrite the flawed document into a compliant one; gold is the
-    pre-injection compliant draft; scored on **violations-removed / key-facts-preserved / format-valid**.
+  draft" (~1/4 are fully-compliant controls), covering **16 violation types** — 11 general + **5
+  medical-specific** (efficacy overclaim, patient-privacy leak, research-as-clinical,
+  AI-replaces-physician, insurance-fund violation). Gold is honesty-checked by an independent
+  detector. Two sub-tasks: **find** `--dataset audit` and **rewrite** `--dataset rewrite`.
 
-## Generating the datasets (one command → four datasets)
+Full dataset design: [`gongwen_benchmark/README.md`](gongwen_benchmark/README.md).
+
+## Install
+
+The core generation/validation/scoring needs **only the standard library**. Install optional extras
+for model evaluation and LLM rewriting as needed:
+
+```bash
+pip install '.[llm]'            # LiteLLM (OpenAI / Anthropic / Qwen / DeepSeek / Together …)
+pip install '.[azure]'         # Azure OpenAI (routed via LiteLLM's azure/ prefix)
+pip install '.[poe]'           # Poe API (fastapi-poe)
+pip install '.[all-providers]' # all of the above
+pip install '.[eval]'          # leaderboard bundle: litellm + fastapi-poe + PyYAML (needed by --models)
+pip install '.[dev]'           # pytest + PyYAML (run tests)
+```
+
+---
+
+# 1. Generate the datasets
 
 Representative committed profile (standard: 37 agencies, 8 working days; Q 600 / DataQA 1000 /
 corpus 4725 / Writing 90 / Audit 90):
@@ -93,38 +103,157 @@ python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard
 | `mini` | 5 | 2 | quick smoke test |
 | `standard` | 37 | 8 | representative committed benchmark |
 | `full` | 37 | 30 | production-scale local generation |
+| `xl` | 37 | 90 | **6000 questions** (Q2000+DataQA3000+Writing500+Audit500, ~54k records) |
+
+Per-dataset counts are CLI-overridable to hit any size:
 
 ```bash
-python gongwen_benchmark/scripts/generate_benchmarks.py --profile full --q-count 1000 --dataqa-questions 3000
+# 6000-question profile
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile xl
+# or set each dataset's count
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile full \
+  --q-count 1500 --dataqa-questions 3000 --writing-count 750 --audit-count 750
 ```
 
-## LLM rewrite-and-"freeze" (optional; covers the surface text of three datasets)
+## LLM-generate the test questions, then "freeze" (optional)
 
-`--use-litellm` rewrites only **surface text** under **fact guards** — the **question wording** of
-CN-GongWen-Q, the **briefing language** of CN-GongWen-DataQA, and the **test prompts** of
-CN-GongWen-Writing; document types, serial numbers, dates, security levels, figures, ordering,
-compliance judgments, plus writing rubrics / reference answers / audit gold are **always computed
-deterministically by Python**. LLM calls are disk-cached and retried, and **fall back to the
-deterministic template on any single failure** (so a freeze run never aborts); enabling
-`--use-litellm` without a key **fails fast with a clear error**. After a run, `git add` to commit
-"**freezes**" those LLM artifacts; the byte-identical reproduction without `--use-litellm` still uses
-the deterministic baseline.
+`--use-llm` has the LLM **author/rewrite the surface text of the test questions** under **fact
+guards** — the **questions** of CN-GongWen-Q, the **questions and briefing language** of
+CN-GongWen-DataQA, and the **test prompts** of CN-GongWen-Writing (CN-GongWen-Audit's flawed
+documents are deterministically injected and gold comes from an independent detector, so they are
+**not** sent to an LLM — preserving honesty). Document types, serial numbers, dates, security
+levels, figures, ordering, compliance judgments, plus writing rubrics / reference answers / audit
+gold are **always computed deterministically by Python**, so gold is unaffected.
+
+Each question carries a unique `variant_id`, so **repeated templates are rephrased into distinct,
+natural surface forms** — this is how the large `xl` (6000) profile expands into many *distinct*
+test items (the deterministic baseline is a reproducible skeleton; the LLM supplies question-text
+diversity). LLM calls are disk-cached and retried, **fall back to the deterministic template on any
+single failure**, and enabling without a key **fails fast**. After a run, `git add` "**freezes**"
+those artifacts; byte-identical reproduction without `--use-llm` still uses the deterministic baseline.
+
+Pick any one provider (`--use-litellm` is a backward-compatible alias):
 
 ```bash
-export MINIMAX_API_KEY=...
-export MINIMAX_API_BASE=https://your-openai-compatible-relay/v1
-export MINIMAX_MODEL=MiniMax-M1
-python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard --use-litellm
+# LiteLLM (OpenAI / Anthropic / Qwen / DeepSeek / Minimax relay …)
+export LLM_API_KEY=sk-...
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard \
+  --use-llm --provider litellm --llm-model openai/gpt-4o-mini
+
+# Azure OpenAI
+export AZURE_API_KEY=...  AZURE_API_BASE=https://<resource>.openai.azure.com/
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard \
+  --use-llm --provider azure --llm-model <your-deployment-name>
+
+# Poe
+export POE_API_KEY=...
+python gongwen_benchmark/scripts/generate_benchmarks.py --profile standard \
+  --use-llm --provider poe --llm-model GPT-4o-Mini
 ```
 
-## Validation & evaluation
+The writing-prompt generator takes the same flags:
 
 ```bash
-python gongwen_benchmark/scripts/validate_artifacts.py   # strict cross-file validation (4 datasets + gold honesty)
-pytest -q
+python gongwen_benchmark/scripts/generate_writing_prompts.py --count 90 \
+  --use-llm --provider poe --llm-model Claude-3-7-Sonnet
 ```
 
-Five scorers (gold self-eval as a connectivity check; the ideal score is 1.0):
+---
+
+# 2. Evaluate your model
+
+`eval_runner.py` is an end-to-end **multi-model evaluator**: it runs any model across all four
+datasets → saves per-question predictions → invokes the scorers → compiles a **leaderboard with 95%
+bootstrap confidence intervals**. It supports **Poe / Azure / LiteLLM** backends, **resumes** safely
+(each prediction is flushed to disk; re-running skips already-answered questions), and accepts
+`--limit N` for a cheap smoke test.
+
+```bash
+pip install '.[eval]'
+```
+
+## Single-model evaluation
+
+```bash
+# LiteLLM: OpenAI / Anthropic / Qwen / DeepSeek …
+export OPENAI_API_KEY=sk-...
+python gongwen_benchmark/scripts/eval_runner.py \
+  --provider litellm --model openai/gpt-4o \
+  --dataset all --output-dir results/gpt4o
+
+# Azure OpenAI
+export AZURE_API_KEY=...  AZURE_API_BASE=https://<resource>.openai.azure.com/
+python gongwen_benchmark/scripts/eval_runner.py \
+  --provider azure --model <deployment> --api-version 2024-08-01-preview \
+  --dataset all --output-dir results/azure-gpt4o
+
+# Poe
+export POE_API_KEY=...
+python gongwen_benchmark/scripts/eval_runner.py \
+  --provider poe --model Claude-3-7-Sonnet \
+  --dataset q --output-dir results/claude-poe
+
+# Smoke test (only the first 5 items per dataset — cheaply verify the wiring)
+python gongwen_benchmark/scripts/eval_runner.py \
+  --provider litellm --model openai/gpt-4o-mini --limit 5 \
+  --dataset all --output-dir results/smoke
+```
+
+`--dataset` ∈ `q` / `dataqa` / `writing` / `audit` / `rewrite` / `all` (default `all`). Each model's
+predictions and `model_meta.json` go to `results/<model-name>/`.
+
+## Multi-model leaderboard (E7 Leaderboard)
+
+List models in YAML (with strong/medium/weak tiers and all three providers; see
+[`models_example.yaml`](gongwen_benchmark/scripts/models_example.yaml)):
+
+```yaml
+- name: GPT-4o
+  provider: litellm
+  model: openai/gpt-4o
+- name: Azure-GPT-4o
+  provider: azure
+  deployment: gpt-4o
+  api_base: https://myresource.openai.azure.com/
+- name: Claude-via-Poe
+  provider: poe
+  bot_name: Claude-3-7-Sonnet
+```
+
+```bash
+# Evaluate every model in sequence, then auto-compile results/leaderboard.json
+python gongwen_benchmark/scripts/eval_runner.py \
+  --models gongwen_benchmark/scripts/models_example.yaml \
+  --dataset all --output-dir results/
+
+# Re-compile the leaderboard from saved predictions only (no model calls)
+python gongwen_benchmark/scripts/eval_runner.py --leaderboard-only --output-dir results/
+```
+
+The leaderboard ranks by `macro_avg` (the unweighted mean of all leaf metric scores across the four
+datasets), with a 95% CI from 1000 bootstrap resamples of model scores.
+
+## Per-provider environment variables
+
+| Provider | Required | Optional / aliases |
+|---|---|---|
+| **litellm** | `LLM_API_KEY` (or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` …) | `LLM_MODEL`, `LLM_API_BASE` (for a self-hosted relay) |
+| **azure** | `AZURE_API_KEY`, `AZURE_API_BASE` | `AZURE_DEPLOYMENT`, `AZURE_API_VERSION` (default `2024-08-01-preview`) |
+| **poe** | `POE_API_KEY` ([poe.com/api_key](https://poe.com/api_key)) | `POE_BOT_NAME` |
+
+Common: `CN_GW_LLM_TEMPERATURE`(0.35), `CN_GW_LLM_TIMEOUT`, `CN_GW_LLM_RETRIES`(3),
+`CN_GW_LLM_CACHE`(cache dir), `CN_GW_EVAL_DELAY`(seconds between calls), `CN_GW_BOOTSTRAP_N`(1000),
+`CN_GW_CONTEXT_ROW_CAP`(DataQA context row cap, 0=unlimited; set a bound for small-context models),
+`CN_GW_EVAL_PREFLIGHT`(default 1; set 0 to skip the one-call startup probe).
+
+> **Reliability**: evaluation runs a **provider preflight** (library/key/endpoint + one probe
+> call) before any dataset; on failure it exits non-zero and skips that model — a broken
+> environment cannot slip onto the leaderboard as a silent ~0.57. Predictions are flushed
+> per-question; add `--resume` to continue an interrupted run (default is a fresh overwrite).
+
+## Underlying scorers (auto-invoked by eval_runner; usable standalone)
+
+Five scorers, with gold self-eval as a connectivity check (ideal score 1.0):
 
 ```bash
 # 1) CN-GongWen-Q       pred: {"question_id","target_doc_type","expected_query_type","requires_clarification","should_refuse"}
@@ -144,16 +273,25 @@ python gongwen_benchmark/evaluation/scorer.py --dataset rewrite \
   --gold gongwen_benchmark/dataset_4_audit/audit_tasks_with_gold.jsonl --pred your_rewrite.jsonl
 ```
 
+---
+
+## Validation & unit tests
+
+```bash
+python gongwen_benchmark/scripts/validate_artifacts.py   # strict cross-file validation (4 datasets + gold honesty)
+pytest -q
+```
+
 The strict validator checks public/hidden isolation, cross-file IDs, evidence integrity, the answer
 contract, task/question-type coverage, difficulty distribution (hard ≥40%, easy ≤25%), trap diversity
 (≥12), medical share (≈50%), writing reference answers landing in their token buckets, and audit gold
-honesty (injected ⇔ detectable; each corrected draft is itself violation-free), among others.
+honesty (injected ⇔ detectable; each corrected draft is itself violation-free).
 
 ## Approved real / hybrid data
 
 For an approved, de-identified, aggregated ledger, pass `--records-input`; the importer rejects
 personal-privacy fields and anonymizes agencies by default. See
-[`gongwen_benchmark/README.md`](gongwen_benchmark/README.md) for the full workflow.
+[`gongwen_benchmark/README.md`](gongwen_benchmark/README.md).
 
 ## Repository layout
 
@@ -165,9 +303,17 @@ gongwen_benchmark/
 ├─ dataset_4_audit/            # CN-GongWen-Audit: public (to audit/rewrite) + with_gold (violations + correct draft) + taxonomy
 ├─ evaluation/                 # scorer.py (5 scorers) + metrics/rules/report templates
 ├─ workflow/                   # official-document handling (OA) event-stream examples
-├─ scripts/                    # schema, generators (benchmarks/writing/audit), validator, real-data import, tokens, LiteLLM
-├─ agency_metadata.csv         # 37 synthetic agencies
-└─ element_dictionary.csv      # 18 format-element dictionary
+└─ scripts/
+   ├─ generate_benchmarks.py       # main generator (Q + DataQA + corpus)
+   ├─ generate_writing_prompts.py  # writing test-prompt generator
+   ├─ generate_audit_tasks.py      # audit / rewrite task generator
+   ├─ eval_runner.py               # ★ multi-model evaluator + leaderboard (Poe/Azure/LiteLLM)
+   ├─ llm_providers.py             # ★ unified LLM provider abstraction (cache/retry/fact-guard)
+   ├─ models_example.yaml          # ★ multi-model evaluation config example
+   ├─ litellm_minimax.py           # backward-compat shim (re-exports llm_providers)
+   ├─ benchmark_schema.py          # doc-type / element / medical 3-level / trap schemas
+   ├─ data_sources.py              # approved real-data import (rejects privacy fields, anonymizes)
+   └─ validate_artifacts.py        # strict cross-file validator
 ```
 
 ## Binary-artifact policy

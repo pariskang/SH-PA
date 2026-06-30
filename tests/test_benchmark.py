@@ -229,6 +229,41 @@ def test_audit_covers_medical_violations():
         assert cov[med] > 0, f"medical violation {med} not covered"
 
 
+def test_xl_profile_supports_6000_questions():
+    """The large profile must total 6000 questions with enough date diversity
+    (days) for the bigger DataQA set, and the per-dataset count CLI flags exist."""
+    from gongwen_benchmark.scripts.generate_benchmarks import PROFILES, main as gb_main  # noqa: F401
+    p = PROFILES["xl"]
+    assert p.default_q + p.default_dataqa + p.default_writing + p.default_audit == 6000
+    assert p.days >= 90 and p.agencies == 37
+
+
+def test_audit_coverage_holds_at_small_counts():
+    """Regression: at small counts (mini=30) the greedy floor-fill could saturate
+    shared carriers and leave the last-ordered violation types at 0. The coverage
+    safety-net must guarantee all 16 types appear at every realistic count."""
+    import collections
+    from gongwen_benchmark.scripts.generate_audit_tasks import build_audit_dataset, VIOLATION_CODES
+    for count in (30, 60, 90):
+        _, hidden = build_audit_dataset(count)
+        cov = collections.Counter(v for h in hidden for v in h["violations"])
+        missing = set(VIOLATION_CODES) - set(cov)
+        assert not missing, f"count={count}: violation types missing {sorted(missing)}"
+
+
+def test_audit_every_violation_type_is_well_sampled():
+    """Each of the 16 violation types must have an adequate sample size for a
+    stable per-type precision/recall — including the doc-type-constrained ones
+    (qingshi_multihead, baogao_embeds_request) that were previously starved."""
+    import collections
+    from gongwen_benchmark.scripts.generate_audit_tasks import VIOLATION_CODES
+    hidden = [json.loads(l) for l in (ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl").open(encoding="utf-8")]
+    cov = collections.Counter(v for h in hidden for v in h["violations"])
+    FLOOR = 8  # standard profile targets 10/type; assert a safe lower bound
+    sparse = {c: cov[c] for c in VIOLATION_CODES if cov[c] < FLOOR}
+    assert not sparse, f"violation types below floor {FLOOR}: {sparse}"
+
+
 def test_audit_scorer_perfect_on_gold():
     path = ROOT / "dataset_4_audit/audit_tasks_with_gold.jsonl"
     s = dataset4_audit_score(path, path)

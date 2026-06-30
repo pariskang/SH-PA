@@ -233,13 +233,14 @@ def validate_audit(root: Path) -> dict[str, Any]:
 
     # 金标准诚实：独立检测器须与注入的违规集合逐项一致；纠错改写金标准（corrected_document）须本身合规
     from generate_audit_tasks import VIOLATION_CODES, detect_violations
-    from generate_writing_prompts import build_writing_specs
-    specs = {s.spec_id.replace("WP_", "AU_"): s for s in build_writing_specs(len(hidden))}
+    from generate_writing_prompts import WritingSpec
     codes = set(VIOLATION_CODES)
     honest = corrected_clean = 0
     for h in hidden:
         assert set(h["violations"]) <= codes, "unknown audit violation code"
-        spec = specs[h["question_id"]]
+        # Use the spec persisted with each task (the one that actually generated
+        # the doc), not a rebuilt list — robust to the audit spec distribution.
+        spec = WritingSpec(**h["spec"])
         if detect_violations(h["flawed_document"], spec) == set(h["violations"]):
             honest += 1
         if not detect_violations(h["corrected_document"], spec):
@@ -250,6 +251,7 @@ def validate_audit(root: Path) -> dict[str, Any]:
     clean = sum(1 for h in hidden if h["is_clean"])
     assert clean > 0 and (len(hidden) - clean) > 0, "audit needs both clean and flawed docs"
     covered = {v for h in hidden for v in h["violations"]}
+    assert covered == codes, f"audit violation coverage incomplete: missing {sorted(codes - covered)}"
     return {
         "audit": len(public),
         "audit_clean": clean,

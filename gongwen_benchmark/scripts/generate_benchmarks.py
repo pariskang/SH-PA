@@ -52,7 +52,7 @@ from litellm_minimax import (
     polish_briefing,
     rewrite_question,
 )
-from llm_providers import config_from_provider, ProviderConfig
+from llm_providers import config_from_provider, ProviderConfig, get_llm_stats, reset_llm_stats
 
 ROOT = SCRIPT_DIR.parent
 DATASET1 = ROOT / "dataset_1_question_only"
@@ -89,6 +89,10 @@ PROFILES: dict[str, ProfileSpec] = {
     "mini": ProfileSpec(agencies=5, days=2, default_q=300, default_dataqa=200, default_writing=30, default_audit=30),
     "standard": ProfileSpec(agencies=37, days=8, default_q=600, default_dataqa=1000, default_writing=90, default_audit=90),
     "full": ProfileSpec(agencies=37, days=30, default_q=1000, default_dataqa=3000, default_writing=180, default_audit=180),
+    # 6000 题大规模档（Q2000 + DataQA3000 + Writing500 + Audit500）。90 个工作日 →
+    # 约 5.3 万条公文语料，给按日/按机关的数据问答足够多样性。生成耗时与体积较大，
+    # 通常本地/Colab 生成，不提交入库。
+    "xl": ProfileSpec(agencies=37, days=90, default_q=2000, default_dataqa=3000, default_writing=500, default_audit=500),
 }
 
 
@@ -739,7 +743,12 @@ def build_q_dataset(agencies: list[dict[str, Any]], total: int, use_llm: bool, c
         if it["question_type"] not in {"spoken_noisy", "hallucination_trap"} and hashed("pad", qid) % 100 < 30:
             question = f"{question}（{pick(SUFFIXES, qid)}）"
         if use_llm and cfg is not None:
-            question = rewrite_question(question, {"question_type": it["question_type"]}, cfg)
+            # variant_id makes each instance's rewrite request unique (distinct cache
+            # key), so identical templates yield distinct, diverse surface forms —
+            # essential for large profiles where pools are cycled many times.
+            question = rewrite_question(
+                question, {"question_type": it["question_type"], "variant_id": qid}, cfg
+            )
         public.append({"question": question})
         hidden.append({
             "question": question, "question_type": it["question_type"], "target_doc_type": it["target_doc_type"],
@@ -825,6 +834,15 @@ def build_dataqa(corpus: Corpus, total: int, use_llm: bool, cfg: LiteLLMConfig |
         seq += 1
         qid = f"DQA_{seq:06d}"
         ev = cap(list(evidence))
+        # 测试题目可由 LLM 改写表层措辞（事实护栏保护 doc_id/机关/字号/日期/数值；漂移即回退
+        # 确定性原题）。答案/证据由 Python 确定性计算，与题面措辞无关，故金标准不受影响。
+        if use_llm and cfg is not None:
+            question = rewrite_question(
+                question,
+                {"task_type": task_type, "required_elements": required_elements or [],
+                 "required_scope": scope, "variant_id": qid},
+                cfg,
+            )
         q = {"question": question, "task_type": task_type, "required_elements": required_elements or [],
              "required_scope": scope, "answer_type": answer_type, "question_id": qid, "evidence_rows": ev}
         if extra:
@@ -1179,6 +1197,10 @@ def main() -> None:
     parser.add_argument("--profile", choices=list(PROFILES), default="standard")
     parser.add_argument("--q-count", type=int, default=None)
     parser.add_argument("--dataqa-questions", type=int, default=None)
+    parser.add_argument("--writing-count", type=int, default=None,
+                        help="Override CN-GongWen-Writing prompt count (default: profile)")
+    parser.add_argument("--audit-count", type=int, default=None,
+                        help="Override CN-GongWen-Audit task count (default: profile)")
     # Legacy flag kept for backward compatibility.
     parser.add_argument("--use-litellm", action="store_true",
                         help="Enable LLM rewriting via LiteLLM (legacy; use --use-llm --provider litellm)")
@@ -1200,14 +1222,22 @@ def main() -> None:
     args = parser.parse_args()
 
     profile = PROFILES[args.profile]
-    q_count = args.q_count or profile.default_q
-    dataqa_count = args.dataqa_questions or profile.default_dataqa
+    # Use `is not None` (not `or`) so an explicit 0 (e.g. --writing-count 0 to skip
+    # a dataset) is honored instead of silently falling back to the profile default.
+    q_count = args.q_count if args.q_count is not None else profile.default_q
+    dataqa_count = args.dataqa_questions if args.dataqa_questions is not None else profile.default_dataqa
+    writing_count = args.writing_count if args.writing_count is not None else profile.default_writing
+    audit_count = args.audit_count if args.audit_count is not None else profile.default_audit
 
     use_llm = args.use_llm or args.use_litellm
+    # --provider is honored whenever LLM rewriting is on, including the legacy
+    # --use-litellm spelling (so `--use-litellm --provider azure` does NOT
+    # silently downgrade to litellm).
+    provider = args.provider
     cfg: ProviderConfig | None = None
     if use_llm:
-        provider = args.provider if args.use_llm else "litellm"
         cfg = config_from_provider(provider, args.llm_model)
+        reset_llm_stats()  # so the summary reports this run's LLM fallback rate
         if provider in ("litellm", "azure") and not litellm_available():
             raise SystemExit(
                 f"litellm 未安装（provider={provider}）：pip install '.[llm]'"
@@ -1242,7 +1272,7 @@ def main() -> None:
     write_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl", hidden)
     (DATASET1 / "taxonomy.json").write_text(json.dumps(build_taxonomy(), ensure_ascii=False, indent=2), encoding="utf-8")
     provider_label = (
-        f"{args.provider}/{type(cfg).__name__}" if cfg is not None else "none"
+        f"{provider}/{type(cfg).__name__}" if cfg is not None else "none"
     )
     (DATASET1 / "generation_prompts.md").write_text(
         "# CN-GongWen-Q 生成说明\n\n"
@@ -1265,23 +1295,39 @@ def main() -> None:
     # CN-GongWen-Writing（dataset_3）：按目标产出 token 分桶的公文写作测试 prompt。
     # 评分真相（rubric/framework/reference）确定性生成；prompt 文本在 use_llm 且有 key 时由 LLM 一次 10 条撰写。
     from generate_writing_prompts import write_writing_dataset
-    writing = write_writing_dataset(profile.default_writing, use_llm, cfg)
+    writing = write_writing_dataset(writing_count, use_llm, cfg, provider_name=provider)
 
-    # CN-GongWen-Audit（dataset_4）：公文审核/纠错（确定性注入雷区→找出违规），完全确定性。
+    # CN-GongWen-Audit（dataset_4）：公文审核/纠错（确定性注入雷区→找出违规）。文档为确定性注入，
+    # 金标准 = 独立检测器检出，故不经 LLM（保证 honesty 与逐字节复现）。
     from generate_audit_tasks import write_audit_dataset
-    audit = write_audit_dataset(profile.default_audit)
+    audit = write_audit_dataset(audit_count)
 
     if args.export_parquet:
         export_parquet(records, args.export_parquet)
 
-    print(json.dumps({
+    summary = {
         "profile": args.profile, "agencies": len(agencies), "records": len(records),
         "q_questions": len(public), "dataqa_questions": len(questions),
         "anomaly_labels": len(anomaly_labels), "briefing_tasks": len(briefing_tasks),
         "writing_prompts": writing["writing_count"], "writing_buckets": writing["writing_buckets"],
         "audit_tasks": audit["audit_count"], "audit_flawed": audit["audit_flawed"],
         "used_llm": use_llm, "llm_provider": provider_label,
-    }, ensure_ascii=False, indent=2))
+    }
+    if use_llm:
+        # Surface silent fallbacks: a high rate means the LLM rarely produced an
+        # accepted rewrite (mis-routed model / over-strict guard / API errors) and
+        # the output is largely the deterministic baseline despite used_llm=true.
+        stats = get_llm_stats()
+        summary["llm_question_fallback_rate"] = stats["fallback_rate"]
+        summary["llm_question_attempts"] = stats["attempts"]
+        if stats["attempts"] and stats["fallback_rate"] >= 0.5:
+            print(
+                f"[warn] LLM question rewriting fell back to the deterministic "
+                f"template for {stats['fallbacks']}/{stats['attempts']} questions "
+                f"({stats['fallback_rate']:.0%}). Check the model id / API key.",
+                file=sys.stderr,
+            )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

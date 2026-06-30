@@ -77,6 +77,8 @@ from llm_providers import (
     completion_json,
     completion_text,
     config_from_provider,
+    litellm_available,
+    poe_available,
 )
 
 DATASET1 = ROOT / "dataset_1_question_only"
@@ -89,6 +91,9 @@ EVALUATION = ROOT / "evaluation"
 _CALL_DELAY = float(os.getenv("CN_GW_EVAL_DELAY", "1.0"))
 # Bootstrap resampling iterations for CI.
 _BOOTSTRAP_N = int(os.getenv("CN_GW_BOOTSTRAP_N", "1000"))
+# Max records fed as DataQA context (0 = unlimited). Bound it for small-context
+# models; large-scope aggregate questions need a big-context model to stay correct.
+_CONTEXT_ROW_CAP = int(os.getenv("CN_GW_CONTEXT_ROW_CAP", "0"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -121,21 +126,34 @@ def _load_records_csv(path: Path) -> list[dict[str, str]]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _scope_records(
-    records: list[dict[str, str]], required_scope: str
+    records: list[dict[str, str]], required_scope: str, task_type: str = ""
 ) -> list[dict[str, str]]:
     """Filter records to the date/range given by required_scope.
 
-    Returns ALL matching records — the model's context window is the natural limit.
-    EV_CAP (40) in the generator caps *gold evidence labels*, not LLM input context.
+    EV_CAP (40) in the generator caps *gold evidence labels*, not LLM input
+    context, so by default all scoped records are returned (the model needs them
+    all for aggregates). Two refinements keep context tractable:
+      * composite_element_explanation is answered from the 发文字号 quoted in the
+        question itself, so it needs no records (its scope is empty, which would
+        otherwise dump the whole corpus);
+      * an optional CN_GW_CONTEXT_ROW_CAP bounds the row count (deterministically
+        ordered) for small-context models.
     """
+    if task_type == "composite_element_explanation":
+        return []
     if not required_scope:
-        # No scope means the question spans the whole dataset — return everything.
-        return records
-    if "~" in required_scope:
+        scoped = records
+    elif "~" in required_scope:
         start, end = required_scope.split("~", 1)
-        return [r for r in records if start <= r.get("issue_date", "") <= end]
-    date = required_scope.strip()
-    return [r for r in records if r.get("issue_date", "") == date]
+        scoped = [r for r in records if start <= r.get("issue_date", "") <= end]
+    else:
+        date = required_scope.strip()
+        scoped = [r for r in records if r.get("issue_date", "") == date]
+    if _CONTEXT_ROW_CAP and len(scoped) > _CONTEXT_ROW_CAP:
+        scoped = sorted(
+            scoped, key=lambda r: (r.get("issue_date", ""), r.get("doc_id", ""))
+        )[:_CONTEXT_ROW_CAP]
+    return scoped
 
 
 def _records_to_table(rows: list[dict[str, str]]) -> str:
@@ -170,17 +188,80 @@ _Q_SYSTEM = (
     'CLARIFICATION_REQUIRED / SAFE_REFUSAL_REQUIRED）",'
     '"requires_clarification":true 或 false,'
     '"should_refuse":true 或 false,'
-    '"expected_slots":{"intent":"（一句话描述问题意图）"}}'
+    '"expected_slots":{"intent":"<意图，从下列受控词选一>",'
+    '"target_doc_type":"<若涉及文种选择，填 GWxx>",'
+    '"doc_type_name":"<若涉及文种，填中文文种名，如 通知>"}}\n'
+    "intent 受控词（只能选其一，须逐字一致）：文种选择 / 文种辨析 / 文种误用辨析 / "
+    "文种与行文方向冲突 / 行文关系规范 / 行文权限边界 / 跨要素合规判断 / 格式边界精度 / "
+    "时效与办理时序 / 否定枚举 / 意图澄清 / 管理建议 / 口语化文种识别 / 安全拒答 / 医疗合规辨析。\n"
+    "expected_slots 中不适用的键填空字符串；target_doc_type/doc_type_name 仅在涉及文种时填写。"
 )
 
 _DATAQA_SYSTEM = (
     "你是公文数据分析专家。以下提供公文档案记录（CSV 格式），请严格根据这些数据"
     "回答数据分析问题，不得推测或引用档案外的信息。\n"
-    "输出 JSON 格式（字段均为必填）：\n"
-    '{"answer_value":（具体答案：数值/排名列表/字典/布尔值，类型视问题而定）,'
-    '"evidence_rows":["R000001",...],'
-    '"final_answer":"用中文完整回答问题的一到两句话"}'
+    "输出 JSON（字段均为必填）：\n"
+    '{"answer_value":<严格按下方【answer_value 结构】给出>,'
+    '"evidence_rows":["R000001",...]（answer_value 所依据的 doc_id 列表）,'
+    '"final_answer":"用中文完整回答问题的一到两句话"}\n'
+    "注意：answer_value 的键名与结构必须与给定结构完全一致（含中文键名、单位、嵌套层级），"
+    "否则无法判分。"
 )
+
+# Per-task_type answer_value contract — mirrors exactly the schema the generator
+# emits per task_type (verified against answers.jsonl). Without this, a model that
+# computes the right numbers writes them under the wrong keys and scores 0.
+_DATAQA_SCHEMAS: dict[str, str] = {
+    "direct_lookup":
+        '{"doc_id":"该公文的Rxxxxxx编号","element":"要素名(如 发文字号/成文日期)","value":"该要素的值"}',
+    "cross_agency_ranking":
+        '[{"id":"GA机关号","value":发文量数值,"unit":"件"}]（按 value 降序，取前5）',
+    "priority_ranking":
+        '[{"id":"R公文号","value":优先级分数值,"unit":"优先级分"}]（按 value 降序，取前5）',
+    "multi_criteria_ranking":
+        '[{"id":"R公文号","value":综合分数值,"unit":"综合分"}]（按 value 降序，取前5）',
+    "period_comparison":
+        '{"earlier":前一时期数量,"later":后一时期数量,"change":后减前的差值}',
+    "sustained_trend":
+        '{"series":[各时段数量,...],"trend":"上升|下降|平稳|波动"之一}',
+    "composite_element_explanation":
+        '{"机关代字":"...","年份":"...","发文顺序号":"..."}（拆解题面给出的发文字号，键名用中文）',
+    "anomaly_detection":
+        '[{"doc_id":"R公文号","anomaly_type":"下列代码之一"}]（仅列出存在异常的公文）',
+    "briefing":
+        '{"briefing_facts":{"agency_id":"GAxxx","date":"YYYY-MM-DD","total":总数,'
+        '"by_direction":{"下行文":n,"上行文":n,"平行文":n},"violation_count":n,'
+        '"urgent_count":n,"secret_count":n}}',
+    "cross_doc_extremum":
+        '{"doc_id":"R公文号","value":抄送机关数量,"unit":"个抄送机关"}',
+    "consecutive_compliance_streak":
+        '{"agency_id":"GAxxx","streak_days":连续天数}',
+    "counterfactual_format":
+        '{"compliant_after_fix":true或false,'
+        '"remaining_issues":[仍存在问题的要素名称（中文，如 标题/发文字号/密级和保密期限/'
+        '签发人/主送机关），完全合规则空列表]}',
+    "quality_filtered_aggregate":
+        '{"value":数量,"unit":"件"}',
+    "precision_percentage_change":
+        '{"value":百分比数值(保留小数),"unit":"%"}',
+    "negative_enumeration":
+        '{"agencies":["GAxxx",...],"count":数量}',
+    "policy_domain_classification":
+        '{"policy_domain":"通用政务或医疗卫生","medical_area":"医疗子领域(非医疗则空字符串)",'
+        '"medical_topic":"具体政策主题(非医疗则空字符串)"}',
+}
+
+# Closed anomaly_type vocabulary (mirrors anomaly_labels.jsonl). Like the Audit
+# codebook, the model cannot match the gold snake_case codes unless we list them.
+_ANOMALY_CODES: dict[str, str] = {
+    "invalid_doc_number": "发文字号格式错误（年份应用六角括号〔〕、序号不加“第”、不编虚位）",
+    "missing_doc_type_in_title": "标题省略文种（标题三要素不全）",
+    "missing_signatory_upward": "上行文缺少签发人",
+    "secret_on_public": "公布性公文面向社会公开，不应标注密级",
+    "missing_main_recipient": "上行/下行公文缺少主送机关",
+    "multi_head_qingshi": "请示多头主送（违反一文一事、单一主送）",
+    "seal_on_jiyao": "纪要不加盖印章",
+}
 
 _WRITING_SYSTEM = (
     "你是党政机关公文起草专家，请严格按照《党政机关公文处理工作条例》(2012) 和 "
@@ -203,13 +284,25 @@ def _build_q_messages(question: str) -> list[dict[str, str]]:
 
 
 def _build_dataqa_messages(
-    question: str, context_table: str
+    question: str, context_table: str, task_type: str = "", required_elements=None
 ) -> list[dict[str, str]]:
+    parts: list[str] = []
+    schema = _DATAQA_SCHEMAS.get(task_type)
+    if schema:
+        parts.append(f"【answer_value 结构】（本题 task_type={task_type}）\n{schema}")
+    if task_type == "anomaly_detection":
+        codebook = "\n".join(f"  - {c}：{d}" for c, d in _ANOMALY_CODES.items())
+        parts.append(f"【anomaly_type 取值（闭集，只能用下列代码）】\n{codebook}")
+    if required_elements:
+        parts.append("【需关注要素】" + "、".join(required_elements))
+    if task_type == "composite_element_explanation":
+        parts.append("（本题无需档案记录，请依据题面给出的发文字号直接拆解作答。）")
+    schema_block = ("\n\n".join(parts) + "\n\n") if parts else ""
     return [
         {"role": "system", "content": _DATAQA_SYSTEM},
         {
             "role": "user",
-            "content": f"【档案记录（CSV）】\n{context_table}\n\n【问题】\n{question}",
+            "content": f"{schema_block}【档案记录（CSV）】\n{context_table}\n\n【问题】\n{question}",
         },
     ]
 
@@ -236,12 +329,16 @@ def evaluate_dataset1(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Run Dataset 1 (Q) and return predictions JSONL rows.
 
     Supports resume: questions already present in the output file are skipped.
     """
     questions = _read_jsonl(DATASET1 / "questions_public.jsonl")
+    if limit:
+        questions = questions[:limit]
     hidden_rows = _read_jsonl(DATASET1 / "questions_with_hidden_metadata.jsonl")
     # O(1) lookup: question text → question_id (handles public files without IDs).
     _text_to_qid: dict[str, str] = {
@@ -253,11 +350,14 @@ def evaluate_dataset1(
     out_path = output_dir / "pred_dataset1_q.jsonl"
     # Load already-completed predictions for resume support.
     done: dict[str, dict[str, Any]] = {
-        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+        r["question_id"]: r
+        for r in (_read_jsonl(out_path) if resume else [])
+        if r.get("question_id")
     }
 
     predictions: list[dict[str, Any]] = []
-    with out_path.open("a", encoding="utf-8") as fh_out:
+    errors = 0
+    with out_path.open("a" if resume else "w", encoding="utf-8") as fh_out:
         for i, row in enumerate(questions):
             qid = (
                 row.get("question_id")
@@ -279,6 +379,7 @@ def evaluate_dataset1(
                     "expected_slots": result.get("expected_slots", {}),
                 }
             except Exception as exc:
+                errors += 1
                 if verbose:
                     print(f"  [warn] {qid}: {exc}", file=sys.stderr)
                 pred = {
@@ -295,6 +396,9 @@ def evaluate_dataset1(
             if verbose and (i + 1) % 50 == 0:
                 print(f"  Q: {i+1}/{len(questions)}", file=sys.stderr)
             time.sleep(_CALL_DELAY)
+    if errors:
+        print(f"  ⚠ {errors} call(s) failed — empty predictions written for those.",
+              file=sys.stderr)
     return predictions
 
 
@@ -302,30 +406,40 @@ def evaluate_dataset2(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Run Dataset 2 (DataQA) with record context and return predictions.
 
     Supports resume: questions already present in the output file are skipped.
     """
     questions = _read_jsonl(DATASET2 / "questions.jsonl")
+    if limit:
+        questions = questions[:limit]
     records = _load_records_csv(DATASET2 / "records.csv")
 
     out_path = output_dir / "pred_dataset2_dataqa.jsonl"
     done: dict[str, dict[str, Any]] = {
-        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+        r["question_id"]: r
+        for r in (_read_jsonl(out_path) if resume else [])
+        if r.get("question_id")
     }
 
     predictions: list[dict[str, Any]] = []
-    with out_path.open("a", encoding="utf-8") as fh_out:
+    errors = 0
+    with out_path.open("a" if resume else "w", encoding="utf-8") as fh_out:
         for i, row in enumerate(questions):
             qid = row["question_id"]
             if qid in done:
                 predictions.append(done[qid])
                 continue
+            task_type = row.get("task_type", "")
             scope = row.get("required_scope", "")
-            context_rows = _scope_records(records, scope)
+            context_rows = _scope_records(records, scope, task_type)
             context_table = _records_to_table(context_rows)
-            messages = _build_dataqa_messages(row["question"], context_table)
+            messages = _build_dataqa_messages(
+                row["question"], context_table, task_type, row.get("required_elements")
+            )
             try:
                 result = completion_json(messages, config)
                 pred = {
@@ -335,6 +449,7 @@ def evaluate_dataset2(
                     "final_answer": result.get("final_answer", ""),
                 }
             except Exception as exc:
+                errors += 1
                 if verbose:
                     print(f"  [warn] {qid}: {exc}", file=sys.stderr)
                 pred = {
@@ -349,6 +464,9 @@ def evaluate_dataset2(
             if verbose and (i + 1) % 100 == 0:
                 print(f"  DataQA: {i+1}/{len(questions)}", file=sys.stderr)
             time.sleep(_CALL_DELAY)
+    if errors:
+        print(f"  ⚠ {errors} call(s) failed — empty predictions written for those.",
+              file=sys.stderr)
     return predictions
 
 
@@ -356,20 +474,27 @@ def evaluate_dataset3(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Run Dataset 3 (Writing) and return predictions with document text.
 
     Supports resume: questions already present in the output file are skipped.
     """
     prompts = _read_jsonl(DATASET3 / "writing_prompts_public.jsonl")
+    if limit:
+        prompts = prompts[:limit]
 
     out_path = output_dir / "pred_dataset3_writing.jsonl"
     done: dict[str, dict[str, Any]] = {
-        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+        r["question_id"]: r
+        for r in (_read_jsonl(out_path) if resume else [])
+        if r.get("question_id")
     }
 
     predictions: list[dict[str, Any]] = []
-    with out_path.open("a", encoding="utf-8") as fh_out:
+    errors = 0
+    with out_path.open("a" if resume else "w", encoding="utf-8") as fh_out:
         for i, row in enumerate(prompts):
             qid = row["question_id"]
             if qid in done:
@@ -380,6 +505,7 @@ def evaluate_dataset3(
                 text = completion_text(messages, config)
                 pred = {"question_id": qid, "answer": text.strip()}
             except Exception as exc:
+                errors += 1
                 if verbose:
                     print(f"  [warn] {qid}: {exc}", file=sys.stderr)
                 pred = {"question_id": qid, "answer": ""}
@@ -389,6 +515,9 @@ def evaluate_dataset3(
             if verbose and (i + 1) % 20 == 0:
                 print(f"  Writing: {i+1}/{len(prompts)}", file=sys.stderr)
             time.sleep(_CALL_DELAY)
+    if errors:
+        print(f"  ⚠ {errors} call(s) failed — empty predictions written for those.",
+              file=sys.stderr)
     return predictions
 
 
@@ -396,20 +525,27 @@ def evaluate_dataset4_audit(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Run Dataset 4 (Audit – find violations) and return predictions.
 
     Supports resume: questions already present in the output file are skipped.
     """
     tasks = _read_jsonl(DATASET4 / "audit_tasks_public.jsonl")
+    if limit:
+        tasks = tasks[:limit]
 
     out_path = output_dir / "pred_dataset4_audit.jsonl"
     done: dict[str, dict[str, Any]] = {
-        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+        r["question_id"]: r
+        for r in (_read_jsonl(out_path) if resume else [])
+        if r.get("question_id")
     }
 
     predictions: list[dict[str, Any]] = []
-    with out_path.open("a", encoding="utf-8") as fh_out:
+    errors = 0
+    with out_path.open("a" if resume else "w", encoding="utf-8") as fh_out:
         for i, row in enumerate(tasks):
             qid = row["question_id"]
             if qid in done:
@@ -423,6 +559,7 @@ def evaluate_dataset4_audit(
                     violations = []
                 pred = {"question_id": qid, "violations": violations}
             except Exception as exc:
+                errors += 1
                 if verbose:
                     print(f"  [warn] {qid}: {exc}", file=sys.stderr)
                 pred = {"question_id": qid, "violations": []}
@@ -432,6 +569,9 @@ def evaluate_dataset4_audit(
             if verbose and (i + 1) % 30 == 0:
                 print(f"  Audit: {i+1}/{len(tasks)}", file=sys.stderr)
             time.sleep(_CALL_DELAY)
+    if errors:
+        print(f"  ⚠ {errors} call(s) failed — empty predictions written for those.",
+              file=sys.stderr)
     return predictions
 
 
@@ -439,20 +579,27 @@ def evaluate_dataset4_rewrite(
     config: ProviderConfig,
     output_dir: Path,
     verbose: bool = False,
+    limit: int | None = None,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Run Dataset 4 (Audit – rewrite/correct flawed document).
 
     Supports resume: questions already present in the output file are skipped.
     """
     tasks = _read_jsonl(DATASET4 / "audit_tasks_public.jsonl")
+    if limit:
+        tasks = tasks[:limit]
 
     out_path = output_dir / "pred_dataset4_rewrite.jsonl"
     done: dict[str, dict[str, Any]] = {
-        r["question_id"]: r for r in _read_jsonl(out_path) if r.get("question_id")
+        r["question_id"]: r
+        for r in (_read_jsonl(out_path) if resume else [])
+        if r.get("question_id")
     }
 
     predictions: list[dict[str, Any]] = []
-    with out_path.open("a", encoding="utf-8") as fh_out:
+    errors = 0
+    with out_path.open("a" if resume else "w", encoding="utf-8") as fh_out:
         for i, row in enumerate(tasks):
             qid = row["question_id"]
             rewrite_prompt = row.get("rewrite_prompt", "")
@@ -466,6 +613,7 @@ def evaluate_dataset4_rewrite(
                 text = completion_text(messages, config)
                 pred = {"question_id": qid, "rewrite": text.strip()}
             except Exception as exc:
+                errors += 1
                 if verbose:
                     print(f"  [warn] {qid}: {exc}", file=sys.stderr)
                 pred = {"question_id": qid, "rewrite": ""}
@@ -475,6 +623,9 @@ def evaluate_dataset4_rewrite(
             if verbose and (i + 1) % 30 == 0:
                 print(f"  Rewrite: {i+1}/{len(tasks)}", file=sys.stderr)
             time.sleep(_CALL_DELAY)
+    if errors:
+        print(f"  ⚠ {errors} call(s) failed — empty predictions written for those.",
+              file=sys.stderr)
     return predictions
 
 
@@ -544,27 +695,64 @@ def _bootstrap_ci(values: list[float], n: int = _BOOTSTRAP_N) -> tuple[float, fl
     return (lo, hi)
 
 
+# Metrics where lower is better — inverted (1 - x) before averaging.
+_LOWER_IS_BETTER = {"briefing_hallucination_rate"}
+# Derived/summary metrics excluded from macro — each is a function of other leaf
+# metrics in the same path (overall_* are conjunctions of their dimensions; F1 is
+# derived from its precision/recall), so including them would double-count.
+_DERIVED_METRICS = {
+    "overall_compliance", "overall_rewrite_compliance", "anomaly_f1", "violation_f1",
+}
+
+
 def _macro_score(scores: dict[str, Any]) -> float:
-    """Average all leaf metric scores (0–1) across all datasets."""
-    vals = []
+    """Equal-weight mean across scoring paths.
+
+    Each scoring path (q / dataqa / writing / audit / rewrite) contributes the
+    mean of its own leaf metrics, then those per-path means are averaged with
+    equal weight — so a dataset's influence does not scale with how many metrics
+    it happens to report. Lower-is-better metrics are inverted; derived/summary
+    metrics that would double-count their components are excluded.
+    """
+    path_means = []
     for dataset_scores in scores.values():
-        if isinstance(dataset_scores, dict):
-            for v in dataset_scores.values():
-                if isinstance(v, float):
-                    vals.append(v)
-    return sum(vals) / len(vals) if vals else 0.0
+        if not isinstance(dataset_scores, dict):
+            continue
+        leaf = []
+        for key, v in dataset_scores.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            if key in _DERIVED_METRICS:
+                continue
+            leaf.append((1.0 - float(v)) if key in _LOWER_IS_BETTER else float(v))
+        if leaf:
+            path_means.append(sum(leaf) / len(leaf))
+    return sum(path_means) / len(path_means) if path_means else 0.0
 
 
 def compile_leaderboard(output_dir: Path) -> dict[str, Any]:
     """Scan output_dir for per-model subdirs, score each, produce leaderboard.json."""
     entries = []
+    skipped = []
     for model_dir in sorted(output_dir.iterdir()):
         if not model_dir.is_dir():
             continue
         meta_path = model_dir / "model_meta.json"
         if not meta_path.exists():
             continue
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"  Skipping {model_dir.name} (unreadable model_meta.json: {exc})",
+                  file=sys.stderr)
+            continue
+        if meta.get("preflight_error"):
+            # A model whose provider was unusable wrote no real predictions; do
+            # not score it (empty predictions would otherwise rank as ~0.57).
+            print(f"  Skipping {meta.get('name', model_dir.name)} (preflight failed) …",
+                  file=sys.stderr)
+            skipped.append({"model": meta, "reason": meta["preflight_error"]})
+            continue
         print(f"  Scoring {meta.get('name', model_dir.name)} …", file=sys.stderr)
         scores = _score_model(model_dir)
         macro = _macro_score(scores)
@@ -574,20 +762,26 @@ def compile_leaderboard(output_dir: Path) -> dict[str, Any]:
     for rank, entry in enumerate(entries, 1):
         entry["rank"] = rank
 
-    # Bootstrap CI on macro_avg across models (treat each model's macro as one obs).
-    if entries:
-        macro_vals = [e["macro_avg"] for e in entries]
-        ci_lo, ci_hi = _bootstrap_ci(macro_vals)
+    # Dispersion of macro_avg BETWEEN models (between-model spread), only
+    # meaningful with ≥2 models — NOT a per-item confidence interval.
+    if len(entries) >= 2:
+        lo, hi = _bootstrap_ci([e["macro_avg"] for e in entries])
+        spread: dict[str, float] | None = {"macro_avg_lo": lo, "macro_avg_hi": hi}
     else:
-        ci_lo = ci_hi = 0.0
+        spread = None
 
     board = {
         "leaderboard": entries,
-        "bootstrap_ci_95": {"macro_avg_lo": ci_lo, "macro_avg_hi": ci_hi},
+        "skipped": skipped,
+        "macro_avg_spread_across_models_95": spread,
         "note": (
-            "macro_avg is the unweighted mean of all leaf metric scores across "
-            "all evaluated datasets. Scores marked N/A were not evaluated. "
-            "95% CI is bootstrapped over model scores (n=1000 resamples)."
+            "macro_avg = equal-weight mean across scoring paths "
+            "(q/dataqa/writing/audit/rewrite); each path = mean of its leaf "
+            "metrics; lower-is-better metrics inverted; derived metrics "
+            "(overall_compliance) excluded. macro_avg_spread_across_models_95 is "
+            "the bootstrap dispersion of macro_avg BETWEEN models (n=1000), not "
+            "per-item confidence; null for <2 models. Models that failed preflight "
+            "are listed under 'skipped', not ranked."
         ),
     }
     out_path = output_dir / "leaderboard.json"
@@ -673,13 +867,44 @@ def _load_models_yaml(path: Path) -> list[ModelSpec]:
 _DATASET_CHOICES = ("q", "dataqa", "writing", "audit", "rewrite", "all")
 
 
+def _preflight(config: ProviderConfig) -> str | None:
+    """Return an error string if the provider is unusable, else None.
+
+    Catches the #1 cause of a silently all-zero run — missing library, missing
+    API key, bad endpoint/key — BEFORE any dataset is evaluated, so a broken
+    environment fails loudly instead of writing empty predictions that score ~0.
+    Set CN_GW_EVAL_PREFLIGHT=0 to skip the (1-call) live probe.
+    """
+    if isinstance(config, PoeConfig):
+        if not poe_available():
+            return "fastapi-poe not installed. Run: pip install 'cn-gongwen-benchmark[poe]'"
+        if not config.api_key:
+            return "POE_API_KEY is not set."
+    else:
+        if not litellm_available():
+            return "litellm not installed. Run: pip install 'cn-gongwen-benchmark[llm]'"
+        if not config.api_key:
+            return "No API key (set LLM_API_KEY / OPENAI_API_KEY / AZURE_API_KEY / …)."
+        if isinstance(config, AzureConfig) and not config.api_base:
+            return "Azure endpoint missing. Set AZURE_API_BASE."
+    if os.getenv("CN_GW_EVAL_PREFLIGHT", "1") == "0":
+        return None
+    try:
+        completion_text([{"role": "user", "content": "ping"}], config)
+    except Exception as exc:  # noqa: BLE001
+        return f"probe call failed: {exc}"
+    return None
+
+
 def run_model(
     spec: ModelSpec,
     datasets: list[str],
     base_output_dir: Path,
     verbose: bool = False,
-) -> None:
-    """Evaluate one model on the specified datasets."""
+    limit: int | None = None,
+    resume: bool = False,
+) -> bool:
+    """Evaluate one model on the specified datasets. Returns True if it ran."""
     safe_name = spec.name.replace("/", "-").replace(":", "-").replace(" ", "_")
     model_dir = base_output_dir / safe_name
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -692,6 +917,15 @@ def run_model(
         "deployment": spec.deployment,
         "bot_name": spec.bot_name,
     }
+    err = _preflight(config)
+    if err:
+        meta["preflight_error"] = err
+        (model_dir / "model_meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"[{spec.name}] ✗ PREFLIGHT FAILED: {err}", file=sys.stderr)
+        print(f"[{spec.name}] skipped — no predictions written.", file=sys.stderr)
+        return False
     (model_dir / "model_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -701,25 +935,26 @@ def run_model(
 
     if do_all or "q" in datasets:
         print(f"  Dataset 1 (Q) …", file=sys.stderr)
-        evaluate_dataset1(config, model_dir, verbose=verbose)
+        evaluate_dataset1(config, model_dir, verbose=verbose, limit=limit, resume=resume)
 
     if do_all or "dataqa" in datasets:
         print(f"  Dataset 2 (DataQA) …", file=sys.stderr)
-        evaluate_dataset2(config, model_dir, verbose=verbose)
+        evaluate_dataset2(config, model_dir, verbose=verbose, limit=limit, resume=resume)
 
     if do_all or "writing" in datasets:
         print(f"  Dataset 3 (Writing) …", file=sys.stderr)
-        evaluate_dataset3(config, model_dir, verbose=verbose)
+        evaluate_dataset3(config, model_dir, verbose=verbose, limit=limit, resume=resume)
 
     if do_all or "audit" in datasets:
         print(f"  Dataset 4 (Audit) …", file=sys.stderr)
-        evaluate_dataset4_audit(config, model_dir, verbose=verbose)
+        evaluate_dataset4_audit(config, model_dir, verbose=verbose, limit=limit, resume=resume)
 
     if do_all or "rewrite" in datasets:
         print(f"  Dataset 4 (Rewrite) …", file=sys.stderr)
-        evaluate_dataset4_rewrite(config, model_dir, verbose=verbose)
+        evaluate_dataset4_rewrite(config, model_dir, verbose=verbose, limit=limit, resume=resume)
 
     print(f"[{spec.name}] Done → {model_dir}", file=sys.stderr)
+    return True
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -778,6 +1013,11 @@ def main() -> None:
 
     parser.add_argument("--leaderboard-only", action="store_true",
                         help="Skip evaluation; only compile leaderboard from existing predictions")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Evaluate only the first N items per dataset (smoke test / cost control)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume into an existing output dir: keep already-answered "
+                             "questions and only fill gaps (default: overwrite fresh)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Print per-question warnings to stderr")
 
@@ -806,8 +1046,17 @@ def main() -> None:
         specs = [spec]
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    ran_any = False
     for spec in specs:
-        run_model(spec, datasets, args.output_dir, verbose=args.verbose)
+        ran = run_model(
+            spec, datasets, args.output_dir,
+            verbose=args.verbose, limit=args.limit, resume=args.resume,
+        )
+        ran_any = ran_any or ran
+
+    if not ran_any:
+        print("All models failed preflight; no evaluation performed.", file=sys.stderr)
+        raise SystemExit(1)
 
     if len(specs) > 1:
         print("\nCompiling leaderboard …", file=sys.stderr)
